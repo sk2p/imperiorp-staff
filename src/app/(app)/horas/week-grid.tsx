@@ -452,7 +452,9 @@ function HourCell({
 
   const commit = () => {
     setEditing(false);
-    const trimmed = draft.trim();
+    // Se lee del campo y no del estado: si el guardado se dispara en el mismo
+    // ciclo en que se escribió, el estado todavía puede venir atrasado.
+    const trimmed = (inputRef.current?.value ?? draft).trim();
     if (trimmed.length === 0) return;
 
     const parsed = parseDurationInput(trimmed);

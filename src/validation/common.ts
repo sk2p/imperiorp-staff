@@ -36,9 +36,19 @@ export function cleanText(min: number, max: number, label: string) {
     );
 }
 
+/**
+ * Campo de texto opcional.
+ *
+ * El `.optional()` marca la CLAVE como opcional, no sólo el valor. Sin él, un
+ * formulario que simplemente no incluye el campo —la planilla de horas no manda
+ * `note`— se rechaza con "expected nonoptional, received undefined", que no
+ * ayuda a nadie. Los formularios HTML mandan cadena vacía, que también se
+ * normaliza a `null`.
+ */
 export function optionalText(max: number, label: string) {
   return z
-    .union([z.string(), z.null(), z.undefined()])
+    .union([z.string(), z.null()])
+    .optional()
     .transform((value) => {
       if (value === null || value === undefined) return null;
       const cleaned = value.replace(/\s+/g, " ").trim();
