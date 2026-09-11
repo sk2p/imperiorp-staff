@@ -33,6 +33,15 @@ export function CsrfProvider({
   return <CsrfContext.Provider value={token}>{children}</CsrfContext.Provider>;
 }
 
+/**
+ * Token para componentes que invocan una Server Action sin formulario (la
+ * planilla de horas guarda cada casilla por su cuenta). El servidor lo exige
+ * igual que a cualquier formulario.
+ */
+export function useCsrfToken(): string {
+  return useContext(CsrfContext);
+}
+
 /** Campo oculto que todo formulario incluye. El servidor lo exige siempre. */
 export function CsrfField() {
   const token = useContext(CsrfContext);

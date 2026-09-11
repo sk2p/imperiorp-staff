@@ -149,6 +149,13 @@ export const staffMembers = pgTable(
     archiveReason: text("archive_reason"),
 
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+
+    /**
+     * Posición manual dentro de su grupo en la grilla de horas. El equipo
+     * ordena la lista como le resulta cómodo y ese orden se conserva.
+     */
+    displayOrder: integer("display_order").notNull().default(0),
+
     version: integer("version").notNull().default(1),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -299,7 +306,8 @@ export const hourEntries = pgTable(
     /** Día trabajado. Siempre dentro del rango del período. */
     workDate: date("work_date").notNull(),
     minutes: integer("minutes").notNull(),
-    reason: varchar("reason", { length: 200 }).notNull(),
+    /** Nota opcional del día. La grilla no la exige; el detalle manual sí la admite. */
+    reason: varchar("reason", { length: 200 }),
 
     recordedBy: uuid("recorded_by").references(() => users.id, { onDelete: "set null" }),
     recordedByUsername: varchar("recorded_by_username", { length: 32 }).notNull(),
@@ -317,6 +325,16 @@ export const hourEntries = pgTable(
     updatedAt: updatedAt(),
   },
   (table) => [
+    /**
+     * Una única entrada vigente por persona y día: es el modelo de la grilla,
+     * donde cada casilla ES ese registro. El índice lo garantiza en la base y
+     * además habilita el upsert de "escribir la casilla".
+     * Las anuladas quedan fuera, así que corregir un día no choca con su
+     * versión anterior.
+     */
+    uniqueIndex("hour_entries_day_unique_idx")
+      .on(table.staffMemberId, table.weekId, table.workDate)
+      .where(sql`voided_at is null`),
     index("hour_entries_week_staff_idx").on(table.weekId, table.staffMemberId),
     index("hour_entries_staff_date_idx").on(table.staffMemberId, table.workDate),
     index("hour_entries_week_date_idx").on(table.weekId, table.workDate),
@@ -351,6 +369,14 @@ export const weeklyStaffRecords = pgTable(
     totalMinutes: integer("total_minutes").notNull().default(0),
     calculatedAmount: bigint("calculated_amount", { mode: "number" }).notNull().default(0),
     entryCount: integer("entry_count").notNull().default(0),
+
+    /**
+     * Estado de la persona en ESTE período: normal | inactivo | justificado | anulado.
+     * Es por período, no por persona: alguien puede estar inactivo esta semana
+     * y volver a la normalidad la siguiente sin perder su historial.
+     */
+    status: varchar("status", { length: 16 }).notNull().default("normal"),
+    statusNote: varchar("status_note", { length: 200 }),
 
     /** Una vez congelado, ningún camino normal del código puede modificarlo. */
     frozenAt: timestamp("frozen_at", { withTimezone: true }),

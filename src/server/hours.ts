@@ -35,7 +35,7 @@ export interface HourEntryView {
   readonly weekCode: string;
   readonly workDate: string;
   readonly minutes: number;
-  readonly reason: string;
+  readonly reason: string | null;
   readonly recordedByUsername: string;
   readonly voidedAt: Date | null;
   readonly voidReason: string | null;

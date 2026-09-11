@@ -64,6 +64,13 @@ import {
   updateUserSchema,
 } from "@/validation/users";
 import { updateRankRateSchema, updateSettingSchema } from "@/validation/system";
+import {
+  removeFromGridSchema,
+  reorderSchema,
+  setCellSchema,
+  setStatusSchema,
+} from "@/validation/grid";
+import { reorderStaff, setGridCell, setWeeklyStatus } from "@/server/grid";
 import { z } from "zod";
 import { runAction, type ActionState } from "./helpers";
 
@@ -335,6 +342,86 @@ export async function voidHourEntryAction(
     },
     async (input, context) => {
       await voidHourEntry(input, context.actor);
+      revalidateAll();
+    },
+  );
+}
+
+/* ========================================================================== */
+/* Planilla semanal                                                           */
+/* ========================================================================== */
+
+export async function setCellAction(
+  _previous: ActionState<unknown>,
+  formData: FormData,
+): Promise<ActionState<unknown>> {
+  return runAction(
+    formData,
+    { permission: P.HOURS_EDIT, schema: setCellSchema, success: "Horas guardadas." },
+    async (input, context) => {
+      await setGridCell(input, context.actor);
+      revalidatePath("/horas");
+      revalidatePath("/");
+    },
+  );
+}
+
+export async function setStatusAction(
+  _previous: ActionState<unknown>,
+  formData: FormData,
+): Promise<ActionState<unknown>> {
+  return runAction(
+    formData,
+    { permission: P.HOURS_EDIT, schema: setStatusSchema, success: "Estado actualizado." },
+    async (input, context) => {
+      await setWeeklyStatus(input, context.actor);
+      revalidatePath("/horas");
+      revalidatePath("/");
+    },
+  );
+}
+
+export async function reorderAction(
+  _previous: ActionState<unknown>,
+  formData: FormData,
+): Promise<ActionState<unknown>> {
+  return runAction(
+    formData,
+    { permission: P.STAFF_EDIT, schema: reorderSchema, success: "Orden guardado." },
+    async (input, context) => {
+      await reorderStaff(input.staffMemberIds, context.actor);
+      revalidatePath("/horas");
+      revalidatePath("/staff");
+    },
+  );
+}
+
+export async function removeFromGridAction(
+  _previous: ActionState<unknown>,
+  formData: FormData,
+): Promise<ActionState<unknown>> {
+  return runAction(
+    formData,
+    {
+      permission: P.STAFF_DELETE,
+      schema: removeFromGridSchema,
+      success: "Miembro archivado. Su historial se conserva.",
+    },
+    async (input, context) => {
+      const { requireStaffMember } = await import("@/server/staff");
+      const member = await requireStaffMember(input.staffMemberId);
+
+      await archiveStaffMember(
+        {
+          id: member.id,
+          expectedVersion: member.version,
+          reason: input.reason ?? "Baja desde la planilla de horas",
+          // El nombre ya se confirmó en el diálogo, que muestra de quién se trata.
+          confirmName: member.name,
+        },
+        context.actor,
+      );
+
       revalidateAll();
     },
   );

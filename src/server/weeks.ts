@@ -93,7 +93,13 @@ export async function recalculateWeekRecords(tx: Transaction, weekId: string): P
       category_snapshot     = excluded.category_snapshot,
       hourly_rate_snapshot  = excluded.hourly_rate_snapshot,
       total_minutes         = excluded.total_minutes,
-      calculated_amount     = excluded.calculated_amount,
+      -- Los minutos se guardan siempre (sirven para explicar qué había cargado),
+      -- pero sólo cobra quien está en estado normal.
+      calculated_amount     = case
+                                when weekly_staff_records.status = 'normal'
+                                then excluded.calculated_amount
+                                else 0
+                              end,
       entry_count           = excluded.entry_count,
       version               = weekly_staff_records.version + 1,
       updated_at            = now()
@@ -583,9 +589,11 @@ export async function closeWeek(input: CloseWeekInput, actor: ActorContext): Pro
       .where(and(eq(weeklyStaffRecords.weekId, input.id), isNull(weeklyStaffRecords.frozenAt)));
     const [totals] = await tx
       .select({
-        totalMinutes: sql<number>`coalesce(sum(${weeklyStaffRecords.totalMinutes}), 0)::int`,
-        totalAmount: sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`,
-        memberCount: sql<number>`count(*)::int`,
+        // Sólo suma quien efectivamente cobra: los inactivos, justificados y
+        // anulados quedan fuera del total del período.
+        totalMinutes: sql<number>`coalesce(sum(${weeklyStaffRecords.totalMinutes}) filter (where ${weeklyStaffRecords.status} = 'normal'), 0)::int`,
+        totalAmount: sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}) filter (where ${weeklyStaffRecords.status} = 'normal'), 0)::bigint`,
+        memberCount: sql<number>`count(*) filter (where ${weeklyStaffRecords.status} = 'normal')::int`,
       })
       .from(weeklyStaffRecords)
       .where(eq(weeklyStaffRecords.weekId, input.id));

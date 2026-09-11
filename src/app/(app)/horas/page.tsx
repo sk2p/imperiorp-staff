@@ -2,9 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { Icon } from "@/components/layout/icons";
-import { FilterBar, Pagination, SearchField, WeekSelector } from "@/components/ui/filters";
+import { WeekSelector } from "@/components/ui/filters";
 import {
-  Badge,
   Callout,
   Card,
   CardHeader,
@@ -13,53 +12,60 @@ import {
   PageHeader,
   Stat,
 } from "@/components/ui/primitives";
-import { PERMISSIONS } from "@/domain/permissions";
+import { WEEKLY_STATUS_LIST } from "@/domain/groups";
 import { formatMoney, formatMoneyCompact } from "@/domain/money";
-import { formatCalendarDate, formatPeriodLabel, formatCalendarDateShort } from "@/domain/periods";
-import { CATEGORY_ACCENT, type StaffCategory } from "@/domain/ranks";
+import { PERMISSIONS } from "@/domain/permissions";
+import {
+  eachDayOfPeriod,
+  formatCalendarDateShort,
+  formatPeriodLabel,
+  weekdayName,
+} from "@/domain/periods";
 import { formatMinutes } from "@/domain/time";
 import { requirePermission } from "@/lib/auth/context";
-import { getWeeklyLines, listHourEntries } from "@/server/hours";
-import { listActiveStaffOptions } from "@/server/staff";
-import { getCurrentWeek, getWeekDetail, listWeekOptions } from "@/server/weeks";
-import { hourFiltersSchema } from "@/validation/hours";
-import { EditEntryDialog, VoidEntryDialog } from "./entry-actions";
-import { QuickEntry } from "./quick-entry";
+import { getWeekGrid } from "@/server/grid";
+import { getCurrentWeek, getWeek, listWeekOptions } from "@/server/weeks";
+import { WeekGridTable } from "./week-grid";
 
-export const metadata: Metadata = { title: "Horas" };
+export const metadata: Metadata = { title: "Registro de Horas" };
 export const dynamic = "force-dynamic";
+
+/** "SÁB" a partir de la fecha. */
+function shortWeekday(date: string): string {
+  return weekdayName(date).slice(0, 3).toUpperCase();
+}
 
 export default async function HoursPage({
   searchParams,
 }: {
-  readonly searchParams: Promise<Record<string, string | string[] | undefined>>;
+  readonly searchParams: Promise<{ periodo?: string }>;
 }) {
   const { can } = await requirePermission(PERMISSIONS.HOURS_VIEW);
   const params = await searchParams;
 
   const weekOptions = await listWeekOptions();
-  const requestedWeekId = typeof params.periodo === "string" ? params.periodo : null;
-  const fallbackWeek = await getCurrentWeek();
-  const weekId =
-    (requestedWeekId && weekOptions.some((week) => week.id === requestedWeekId)
-      ? requestedWeekId
-      : null) ??
-    fallbackWeek?.id ??
-    weekOptions[0]?.id ??
-    null;
+  const requested =
+    params.periodo && weekOptions.some((w) => w.id === params.periodo) ? params.periodo : null;
+  const current = await getCurrentWeek();
+  const weekId = requested ?? current?.id ?? weekOptions[0]?.id ?? null;
 
   if (!weekId) {
     return (
       <div className="flex flex-col gap-5">
-        <PageHeader title="Horas" description="Registro y corrección de horas trabajadas." />
+        <PageHeader
+          eyebrow="Operación"
+          title="Registro de Horas"
+          description="Controlá las horas semanales del staff desde un único panel."
+        />
         <Card>
           <EmptyState
             icon={<Icon name="calendar" size={20} />}
-            title="No hay ningún período creado"
-            description="Las horas pertenecen siempre a un período de liquidación. Creá el primero para empezar."
+            title="Todavía no hay ningún período"
+            description="Las horas pertenecen siempre a un período de liquidación. Creá el primero para abrir la planilla."
             action={
               can(PERMISSIONS.WEEKS_CREATE) ? (
                 <LinkButton href="/periodos" size="sm">
+                  <Icon name="plus" size={15} />
                   Crear período
                 </LinkButton>
               ) : null
@@ -70,41 +76,40 @@ export default async function HoursPage({
     );
   }
 
-  const filters = hourFiltersSchema.parse({
-    ...params,
-    weekId,
-    page: params.page,
-    search: typeof params.search === "string" ? params.search : undefined,
-  });
-
-  const [week, lines, entries, staff] = await Promise.all([
-    getWeekDetail(weekId),
-    getWeeklyLines(weekId),
-    listHourEntries({ ...filters, pageSize: 25 }),
-    listActiveStaffOptions(),
-  ]);
-
+  const week = await getWeek(weekId);
   if (!week) return null;
 
+  const grid = await getWeekGrid(week);
+  const dayLabels = eachDayOfPeriod(week.startDate, week.endDate).map((date) => ({
+    weekday: shortWeekday(date),
+    date: formatCalendarDateShort(date),
+  }));
+
   const isOpen = week.status === "open";
-  const totalMinutes = lines.reduce((sum, line) => sum + line.totalMinutes, 0);
-  const totalAmount = lines.reduce((sum, line) => sum + line.amount, 0);
-  const today = new Date().toISOString().slice(0, 10);
 
   return (
     <div className="flex flex-col gap-5">
       <PageHeader
         eyebrow="Operación"
-        title="Horas"
-        description="Cada total es la suma de turnos concretos: siempre se puede ver de dónde salió."
-        actions={<WeekSelector weeks={weekOptions} currentId={weekId} />}
+        title="Registro de Horas"
+        description="Controlá las horas semanales del staff desde un único panel."
+        actions={
+          <>
+            <WeekSelector weeks={weekOptions} currentId={weekId} />
+            {can(PERMISSIONS.STAFF_CREATE) ? (
+              <LinkButton href="/staff" size="sm">
+                <Icon name="plus" size={15} />
+                Agregar usuario
+              </LinkButton>
+            ) : null}
+          </>
+        }
       />
 
       {!isOpen ? (
         <Callout tone="warning" title="Este período está cerrado">
-          Las horas quedaron congeladas el{" "}
-          {week.closedAt ? formatCalendarDate(week.closedAt.toISOString().slice(0, 10)) : "—"}. Para
-          modificarlas hay que reabrir el período, lo que exige motivo y permiso de reapertura.
+          Las horas quedaron congeladas y la planilla es de sólo lectura. Para corregir algo hay que
+          reabrir el período, lo que exige motivo y un permiso aparte.
           {can(PERMISSIONS.WEEKS_REOPEN) ? (
             <>
               {" "}
@@ -125,230 +130,70 @@ export default async function HoursPage({
           hint={formatPeriodLabel(week.startDate, week.endDate)}
         />
         <Stat
-          label="Horas totales"
-          value={formatMinutes(totalMinutes)}
-          hint={totalMinutes + " minutos"}
+          label="Horas cargadas"
+          value={formatMinutes(grid.totalMinutes)}
+          hint="Sólo cuenta a quien cobra"
         />
         <Stat
-          label="Importe"
-          value={formatMoneyCompact(totalAmount)}
-          hint={formatMoney(totalAmount)}
+          label="Paga total"
+          value={formatMoneyCompact(grid.totalAmount)}
+          hint={formatMoney(grid.totalAmount)}
           accent
         />
         <Stat
-          label="Con actividad"
-          value={lines.filter((line) => line.totalMinutes > 0).length + " / " + lines.length}
-          hint="Miembros con al menos un turno"
+          label="Usuarios en la planilla"
+          value={grid.memberCount}
+          hint={week.label ?? undefined}
         />
       </div>
 
-      {isOpen && can(PERMISSIONS.HOURS_CREATE) && staff.length > 0 ? (
-        <Card>
-          <CardHeader
-            title="Registrar un turno"
-            description="Elegí el miembro, tocá una duración y confirmá."
-          />
-          <QuickEntry
-            staff={staff}
-            weekId={weekId}
-            weekStart={week.startDate}
-            weekEnd={week.endDate}
-            today={today}
-          />
-        </Card>
-      ) : null}
-
-      {/* Resumen por miembro */}
       <Card>
         <CardHeader
-          title="Resumen por miembro"
-          description="Liquidación del período con la tarifa aplicada a cada rango."
+          title="Planilla semanal"
+          description={
+            isOpen && can(PERMISSIONS.HOURS_EDIT)
+              ? "Click en una casilla para cargar las horas · Click derecho sobre la fila para cambiar el estado"
+              : "Vista de sólo lectura."
+          }
+          action={
+            <div className="flex flex-wrap items-center gap-2">
+              {WEEKLY_STATUS_LIST.filter((status) => status.status !== "normal").map((status) => (
+                <span
+                  key={status.status}
+                  className={
+                    "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[0.625rem] font-semibold " +
+                    status.badge
+                  }
+                >
+                  <span className={"h-1.5 w-1.5 rounded-full " + status.dot} />
+                  {status.short}
+                </span>
+              ))}
+            </div>
+          }
         />
-        {lines.length === 0 ? (
+
+        {grid.groups.length === 0 ? (
           <EmptyState
             icon={<Icon name="users" size={20} />}
-            title="El período no tiene miembros"
-            description="Agregá miembros al staff o incorporalos al período desde la pantalla de períodos."
+            title="La planilla está vacía"
+            description="Este período no tiene miembros cargados. Agregá staff y volvé a abrir el período, o incorporalos desde la pantalla de períodos."
+            action={
+              can(PERMISSIONS.STAFF_CREATE) ? (
+                <LinkButton href="/staff" size="sm" variant="secondary">
+                  Ir a Staff
+                </LinkButton>
+              ) : null
+            }
           />
         ) : (
-          <div className="scroll-x">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Miembro</th>
-                  <th>Rango</th>
-                  <th className="text-right">Horas</th>
-                  <th className="text-right">Tarifa</th>
-                  <th className="text-right">Importe</th>
-                  <th className="text-right">Turnos</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody className="stagger">
-                {lines.map((line) => {
-                  const accent = CATEGORY_ACCENT[line.category as StaffCategory];
-                  return (
-                    <tr key={line.recordId}>
-                      <td className="text-chalk-100 font-medium">{line.name}</td>
-                      <td>
-                        <span
-                          className={
-                            "inline-flex rounded border px-1.5 py-px text-[0.625rem] font-bold " +
-                            (accent?.fg ?? "") +
-                            " " +
-                            (accent?.bg ?? "") +
-                            " " +
-                            (accent?.border ?? "")
-                          }
-                        >
-                          {line.rank}
-                        </span>
-                      </td>
-                      <td className="tnum text-right font-semibold">
-                        {formatMinutes(line.totalMinutes)}
-                      </td>
-                      <td className="tnum text-chalk-500 text-right text-xs">
-                        {formatMoneyCompact(line.hourlyRate)}/h
-                      </td>
-                      <td className="tnum text-chalk-100 text-right font-semibold">
-                        {formatMoney(line.amount)}
-                      </td>
-                      <td className="tnum text-chalk-500 text-right text-xs">{line.entryCount}</td>
-                      <td className="text-right">
-                        <Link
-                          href={"/staff/" + line.staffMemberId + "?periodo=" + weekId}
-                          className="text-chalk-500 hover:text-imperial-400 text-xs font-semibold transition"
-                        >
-                          Detalle →
-                        </Link>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot>
-                <tr className="border-t border-white/10 bg-white/[0.02]">
-                  <td colSpan={2} className="text-chalk-400 px-3.5 py-2.5 text-xs font-semibold">
-                    Total del período
-                  </td>
-                  <td className="tnum text-chalk-50 px-3.5 py-2.5 text-right text-sm font-bold">
-                    {formatMinutes(totalMinutes)}
-                  </td>
-                  <td />
-                  <td className="tnum text-imperial-400 px-3.5 py-2.5 text-right text-sm font-bold">
-                    {formatMoney(totalAmount)}
-                  </td>
-                  <td colSpan={2} />
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        )}
-      </Card>
-
-      {/* Detalle de turnos */}
-      <Card>
-        <CardHeader
-          title="Turnos registrados"
-          description="Cada línea es una carga individual, con su responsable y su motivo."
-        />
-        <FilterBar>
-          <SearchField placeholder="Buscar por miembro, motivo o responsable…" />
-        </FilterBar>
-
-        {entries.items.length === 0 ? (
-          <EmptyState
-            icon={<Icon name="clock" size={20} />}
-            title="Sin turnos en este período"
-            description="Cuando se registre el primero va a aparecer acá con todo su detalle."
+          <WeekGridTable
+            grid={grid}
+            dayLabels={dayLabels}
+            canEdit={can(PERMISSIONS.HOURS_EDIT) && isOpen}
+            canDelete={can(PERMISSIONS.STAFF_DELETE) && isOpen}
+            canReorder={can(PERMISSIONS.STAFF_EDIT)}
           />
-        ) : (
-          <>
-            <div className="scroll-x">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Fecha</th>
-                    <th>Miembro</th>
-                    <th className="text-right">Duración</th>
-                    <th>Qué hizo</th>
-                    <th>Cargado por</th>
-                    {isOpen && (can(PERMISSIONS.HOURS_EDIT) || can(PERMISSIONS.HOURS_DELETE)) ? (
-                      <th className="text-right">Acciones</th>
-                    ) : null}
-                  </tr>
-                </thead>
-                <tbody className="stagger">
-                  {entries.items.map((entry) => (
-                    <tr key={entry.id} className={entry.voidedAt ? "opacity-45" : undefined}>
-                      <td className="tnum text-chalk-400 text-xs whitespace-nowrap">
-                        {formatCalendarDate(entry.workDate)}
-                      </td>
-                      <td className="text-chalk-100 font-medium">
-                        {entry.staffName}
-                        <Badge tone="muted" className="ml-2">
-                          {entry.staffRank}
-                        </Badge>
-                      </td>
-                      <td className="tnum text-right font-semibold">
-                        {formatMinutes(entry.minutes)}
-                        {entry.voidedAt ? (
-                          <Badge tone="imperial" className="ml-2">
-                            Anulada
-                          </Badge>
-                        ) : null}
-                      </td>
-                      <td
-                        className="text-chalk-400 max-w-[18rem] truncate text-xs"
-                        title={entry.reason}
-                      >
-                        {entry.reason}
-                      </td>
-                      <td className="text-chalk-500 text-xs">{entry.recordedByUsername}</td>
-                      {isOpen && (can(PERMISSIONS.HOURS_EDIT) || can(PERMISSIONS.HOURS_DELETE)) ? (
-                        <td>
-                          <div className="flex items-center justify-end gap-0.5">
-                            {!entry.voidedAt && can(PERMISSIONS.HOURS_EDIT) ? (
-                              <EditEntryDialog
-                                entry={{
-                                  id: entry.id,
-                                  staffName: entry.staffName,
-                                  workDate: entry.workDate,
-                                  minutes: entry.minutes,
-                                  reason: entry.reason,
-                                  version: entry.version,
-                                }}
-                                weekStart={week.startDate}
-                                weekEnd={week.endDate}
-                              />
-                            ) : null}
-                            {!entry.voidedAt && can(PERMISSIONS.HOURS_DELETE) ? (
-                              <VoidEntryDialog
-                                entry={{
-                                  id: entry.id,
-                                  staffName: entry.staffName,
-                                  workDate: entry.workDate,
-                                  minutes: entry.minutes,
-                                  reason: entry.reason,
-                                  version: entry.version,
-                                }}
-                              />
-                            ) : null}
-                          </div>
-                        </td>
-                      ) : null}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <Pagination
-              page={entries.page}
-              pageCount={entries.pageCount}
-              total={entries.total}
-              itemLabel="turnos"
-            />
-          </>
         )}
       </Card>
     </div>

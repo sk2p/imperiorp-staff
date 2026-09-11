@@ -8,6 +8,13 @@
       "when": 1789133767733,
       "tag": "0000_inicial",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789165268140,
+      "tag": "0001_grilla-semanal",
+      "breakpoints": true
     }
   ]
 }
