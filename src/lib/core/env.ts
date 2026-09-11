@@ -33,6 +33,14 @@ const serverEnvSchema = z.object({
   /** Fuerza SSL en la conexión aunque el host no sea remoto. */
   DATABASE_SSL: booleanish.optional(),
 
+  /**
+   * Desactiva la verificación del certificado del servidor de base de datos.
+   * Sólo para un PostgreSQL propio con certificado autofirmado: con un
+   * proveedor gestionado nunca hace falta, y apagarla deja la conexión
+   * expuesta a que alguien se interponga en el medio.
+   */
+  DATABASE_SSL_NO_VERIFY: booleanish.default(false),
+
   /** Tamaño máximo del pool de conexiones. */
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(200).default(10),
 

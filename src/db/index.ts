@@ -74,9 +74,20 @@ function createHandle(): DatabaseHandle {
       max: env.DATABASE_POOL_MAX,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 10_000,
-      // Los proveedores gestionados usan certificados internos; se exige TLS
-      // pero no una cadena de confianza pública.
-      ssl: shouldUseSsl(connectionString) ? { rejectUnauthorized: false } : undefined,
+      /**
+       * TLS con verificación completa del certificado.
+       *
+       * Sin verificar, la conexión va cifrada pero no autenticada: quien pueda
+       * interponerse en la red presenta su propio certificado y lee —o
+       * modifica— todo lo que viaja, que acá son horas, sueldos y contraseñas.
+       *
+       * Neon, Supabase, Railway y Render usan certificados de una autoridad
+       * pública, así que esto funciona tal cual. `DATABASE_SSL_NO_VERIFY=true`
+       * queda sólo para un PostgreSQL propio con certificado autofirmado.
+       */
+      ssl: shouldUseSsl(connectionString)
+        ? { rejectUnauthorized: !env.DATABASE_SSL_NO_VERIFY }
+        : undefined,
       application_name: "imperio-rp-staff",
     });
 
