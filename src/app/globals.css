@@ -1,0 +1,518 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   IMPERIO RP — Sistema de diseño
+   Negro, carbón, blanco, gris y un rojo imperial usado con disciplina:
+   el rojo marca lo que importa, no decora. Si todo brilla, nada resalta.
+   ========================================================================== */
+
+@theme {
+  --color-ink-950: #07080a;
+  --color-ink-900: #0b0d10;
+  --color-ink-850: #101317;
+  --color-ink-800: #15181d;
+  --color-ink-700: #1d2127;
+  --color-ink-600: #2a2f37;
+
+  --color-chalk-50: #f7f7f8;
+  --color-chalk-200: #d4d6da;
+  --color-chalk-400: #9ca1aa;
+  --color-chalk-500: #6f747d;
+  --color-chalk-600: #4e535b;
+
+  --color-imperial-400: #ff4d5e;
+  --color-imperial-500: #e5162c;
+  --color-imperial-600: #c11024;
+  --color-imperial-700: #8d0b1a;
+
+  --color-jade-400: #34d399;
+  --color-jade-500: #10b981;
+  --color-amber-400: #fbbf24;
+  --color-sky-400: #38bdf8;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+
+  --radius-card: 14px;
+}
+
+:root {
+  --surface: var(--color-ink-900);
+  --surface-raised: var(--color-ink-850);
+  --surface-hover: var(--color-ink-800);
+  --line: rgb(255 255 255 / 0.07);
+  --line-strong: rgb(255 255 255 / 0.13);
+  --shadow-lift: 0 1px 2px rgb(0 0 0 / 0.5), 0 8px 24px -12px rgb(0 0 0 / 0.7);
+  color-scheme: dark;
+}
+
+/* --------------------------------------------------------------------------
+   Base
+   -------------------------------------------------------------------------- */
+
+* {
+  border-color: var(--line);
+}
+
+body {
+  background-color: var(--color-ink-950);
+  color: var(--color-chalk-50);
+  font-family: var(--font-sans);
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* Halo imperial muy tenue en el borde superior. Da profundidad sin ruido. */
+  background-image:
+    radial-gradient(80rem 32rem at 50% -14rem, rgb(229 22 44 / 0.1), transparent 70%),
+    radial-gradient(60rem 30rem at 110% 100%, rgb(229 22 44 / 0.035), transparent 65%);
+  background-attachment: fixed;
+}
+
+::selection {
+  background: rgb(229 22 44 / 0.32);
+  color: #fff;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-imperial-500);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-ink-700);
+  border: 3px solid var(--color-ink-950);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ink-600);
+}
+
+/* Todas las cifras se alinean en columna. En tablas de dinero no es estética:
+   es lo que permite comparar importes de un vistazo. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* --------------------------------------------------------------------------
+   Superficies
+   -------------------------------------------------------------------------- */
+
+.surface {
+  background-color: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+}
+
+.surface-raised {
+  background-color: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lift);
+}
+
+/* Tarjeta con filo superior iluminado: el detalle que separa una superficie
+   plana de una que parece tener materialidad. */
+.surface-edge {
+  position: relative;
+  background-color: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+.surface-edge::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgb(255 255 255 / 0.14) 18%,
+    rgb(255 255 255 / 0.14) 82%,
+    transparent
+  );
+  pointer-events: none;
+}
+
+.interactive {
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    transform 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 160ms ease;
+}
+.interactive:hover {
+  background-color: var(--surface-hover);
+  border-color: var(--line-strong);
+}
+.interactive:active {
+  transform: scale(0.988);
+}
+
+/* Franja lateral roja que aparece al pasar por encima de una fila accionable. */
+.row-rail {
+  position: relative;
+}
+.row-rail::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10%;
+  bottom: 10%;
+  width: 2px;
+  border-radius: 99px;
+  background: var(--color-imperial-500);
+  transform: scaleY(0);
+  transform-origin: center;
+  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.row-rail:hover::before,
+.row-rail[data-active="true"]::before {
+  transform: scaleY(1);
+}
+
+/* Trama diagonal para estados vacíos y zonas inactivas. */
+.hatch {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgb(255 255 255 / 0.028) 0 1px,
+    transparent 1px 9px
+  );
+}
+
+/* --------------------------------------------------------------------------
+   Animaciones
+   -------------------------------------------------------------------------- */
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes sweep {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgb(229 22 44 / 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 9px rgb(229 22 44 / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(229 22 44 / 0);
+  }
+}
+
+@keyframes draw {
+  from {
+    stroke-dashoffset: var(--dash, 1000);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes grow-x {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes grow-y {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+.anim-rise {
+  animation: rise 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.anim-fade {
+  animation: fade 300ms ease both;
+}
+.anim-pop {
+  animation: pop 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.anim-slide-up {
+  animation: slide-up 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.anim-ring {
+  animation: pulse-ring 2s ease-out infinite;
+}
+
+/* Entrada escalonada: las filas de una tabla aparecen una detrás de otra.
+   El retraso se corta a los 12 elementos para que una lista larga no tarde. */
+.stagger > * {
+  animation: rise 380ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.stagger > *:nth-child(1) {
+  animation-delay: 20ms;
+}
+.stagger > *:nth-child(2) {
+  animation-delay: 40ms;
+}
+.stagger > *:nth-child(3) {
+  animation-delay: 60ms;
+}
+.stagger > *:nth-child(4) {
+  animation-delay: 80ms;
+}
+.stagger > *:nth-child(5) {
+  animation-delay: 100ms;
+}
+.stagger > *:nth-child(6) {
+  animation-delay: 120ms;
+}
+.stagger > *:nth-child(7) {
+  animation-delay: 140ms;
+}
+.stagger > *:nth-child(8) {
+  animation-delay: 160ms;
+}
+.stagger > *:nth-child(9) {
+  animation-delay: 180ms;
+}
+.stagger > *:nth-child(10) {
+  animation-delay: 200ms;
+}
+.stagger > *:nth-child(11) {
+  animation-delay: 220ms;
+}
+.stagger > *:nth-child(n + 12) {
+  animation-delay: 240ms;
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-ink-850) 25%,
+    var(--color-ink-800) 37%,
+    var(--color-ink-850) 63%
+  );
+  background-size: 200% 100%;
+  animation: sweep 1.4s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+.chart-line {
+  stroke-dasharray: var(--dash, 1000);
+  animation: draw 1100ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.chart-bar {
+  transform-origin: bottom;
+  animation: grow-y 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.bar-grow {
+  transform-origin: left;
+  animation: grow-x 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Quien pide menos movimiento en su sistema operativo, no recibe movimiento. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Formularios
+   -------------------------------------------------------------------------- */
+
+.field {
+  width: 100%;
+  background-color: var(--color-ink-950);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--color-chalk-50);
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    background-color 150ms ease;
+}
+.field::placeholder {
+  color: var(--color-chalk-600);
+}
+.field:hover:not(:disabled) {
+  border-color: rgb(255 255 255 / 0.2);
+}
+.field:focus {
+  outline: none;
+  border-color: var(--color-imperial-500);
+  box-shadow: 0 0 0 3px rgb(229 22 44 / 0.16);
+  background-color: var(--color-ink-900);
+}
+.field:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.field[aria-invalid="true"] {
+  border-color: var(--color-imperial-500);
+  box-shadow: 0 0 0 3px rgb(229 22 44 / 0.12);
+}
+
+/* En iOS, un input con menos de 16px hace que el navegador haga zoom al
+   enfocarlo y descoloca toda la pantalla. */
+@media (max-width: 640px) {
+  .field,
+  select.field,
+  textarea.field {
+    font-size: 16px;
+  }
+}
+
+.label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-chalk-400);
+  margin-bottom: 0.375rem;
+}
+
+select.field {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' stroke='%236f747d' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.7rem center;
+  background-size: 12px;
+  padding-right: 2rem;
+}
+
+/* --------------------------------------------------------------------------
+   Tablas
+   -------------------------------------------------------------------------- */
+
+.data-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.875rem;
+}
+.data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background-color: var(--color-ink-900);
+  backdrop-filter: blur(8px);
+  text-align: left;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-chalk-500);
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--line-strong);
+  white-space: nowrap;
+}
+.data-table tbody td {
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+.data-table tbody tr {
+  transition: background-color 140ms ease;
+}
+.data-table tbody tr:hover {
+  background-color: rgb(255 255 255 / 0.022);
+}
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Cualquier bloque ancho se desplaza dentro de su caja; el cuerpo de la página
+   nunca se mueve en horizontal. */
+.scroll-x {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* --------------------------------------------------------------------------
+   Utilidades
+   -------------------------------------------------------------------------- */
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  letter-spacing: -0.01em;
+}
+
+.overline {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-chalk-500);
+}
+
+/* Franja de seguridad para pantallas con notch o barra gestual. */
+.safe-bottom {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
