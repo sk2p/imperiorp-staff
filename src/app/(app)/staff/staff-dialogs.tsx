@@ -74,23 +74,6 @@ export function CreateStaffDialog() {
                 </Select>
               </Field>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="ID en el servidor" name="inGameId" error={fieldError("inGameId")}>
-                  <Input id="inGameId" name="inGameId" maxLength={40} placeholder="Opcional" />
-                </Field>
-                <Field label="Discord" name="discordTag" error={fieldError("discordTag")}>
-                  <Input id="discordTag" name="discordTag" maxLength={40} placeholder="Opcional" />
-                </Field>
-              </div>
-
-              <Field label="Ingreso al staff" name="joinedAt" error={fieldError("joinedAt")}>
-                <Input id="joinedAt" name="joinedAt" type="date" />
-              </Field>
-
-              <Field label="Notas" name="notes" error={fieldError("notes")}>
-                <Textarea id="notes" name="notes" rows={2} maxLength={1000} />
-              </Field>
-
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="ghost" onClick={close}>
                   Cancelar
@@ -125,44 +108,6 @@ export function EditStaffDialog({ member }: { readonly member: StaffRow }) {
 
               <Field label="Nombre" name="name" required error={fieldError("name")}>
                 <Input id="name" name="name" defaultValue={member.name} required maxLength={60} />
-              </Field>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="ID en el servidor" name="inGameId" error={fieldError("inGameId")}>
-                  <Input
-                    id="inGameId"
-                    name="inGameId"
-                    defaultValue={member.inGameId ?? ""}
-                    maxLength={40}
-                  />
-                </Field>
-                <Field label="Discord" name="discordTag" error={fieldError("discordTag")}>
-                  <Input
-                    id="discordTag"
-                    name="discordTag"
-                    defaultValue={member.discordTag ?? ""}
-                    maxLength={40}
-                  />
-                </Field>
-              </div>
-
-              <Field label="Ingreso al staff" name="joinedAt" error={fieldError("joinedAt")}>
-                <Input
-                  id="joinedAt"
-                  name="joinedAt"
-                  type="date"
-                  defaultValue={member.joinedAt ?? ""}
-                />
-              </Field>
-
-              <Field label="Notas" name="notes" error={fieldError("notes")}>
-                <Textarea
-                  id="notes"
-                  name="notes"
-                  rows={3}
-                  defaultValue={member.notes ?? ""}
-                  maxLength={1000}
-                />
               </Field>
 
               <div className="flex justify-end gap-2">

@@ -34,10 +34,6 @@ const nameSchema = cleanText(2, 60, "El nombre").refine(
 export const createStaffSchema = z.object({
   name: nameSchema,
   rank: rankSchema,
-  inGameId: optionalText(40, "El ID en el servidor"),
-  discordTag: optionalText(40, "El usuario de Discord"),
-  joinedAt: calendarDateSchema.optional().nullable(),
-  notes: optionalText(1000, "Las notas"),
 });
 
 export type CreateStaffInput = z.infer<typeof createStaffSchema>;
@@ -46,10 +42,6 @@ export const updateStaffSchema = z.object({
   id: uuidSchema,
   expectedVersion: versionSchema,
   name: nameSchema,
-  inGameId: optionalText(40, "El ID en el servidor"),
-  discordTag: optionalText(40, "El usuario de Discord"),
-  joinedAt: calendarDateSchema.optional().nullable(),
-  notes: optionalText(1000, "Las notas"),
 });
 
 export type UpdateStaffInput = z.infer<typeof updateStaffSchema>;

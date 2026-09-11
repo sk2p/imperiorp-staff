@@ -224,10 +224,6 @@ export async function createStaffMember(
         name: input.name,
         rank: input.rank,
         category,
-        inGameId: input.inGameId,
-        discordTag: input.discordTag,
-        joinedAt: input.joinedAt ?? null,
-        notes: input.notes,
         createdBy: actor.id,
       })
       .returning();
@@ -285,10 +281,6 @@ export async function updateStaffMember(
       .update(staffMembers)
       .set({
         name: input.name,
-        inGameId: input.inGameId,
-        discordTag: input.discordTag,
-        joinedAt: input.joinedAt ?? null,
-        notes: input.notes,
         version: existing.version + 1,
         updatedAt: new Date(),
       })

@@ -3,7 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { requestMetadata, requireAuth, requirePermission } from "@/lib/auth/context";
+import {
+  requestMetadata,
+  requireAuth,
+  requireFounder,
+  requirePermission,
+} from "@/lib/auth/context";
 import { isAppError } from "@/lib/core/errors";
 import { logger, newTraceId } from "@/lib/core/logger";
 import { PERMISSIONS } from "@/domain/permissions";
@@ -65,12 +70,23 @@ import {
 } from "@/validation/users";
 import { updateRankRateSchema, updateSettingSchema } from "@/validation/system";
 import {
+  changeRankInlineSchema,
   removeFromGridSchema,
   reorderSchema,
+  resetWeekSchema,
   setCellSchema,
-  setStatusSchema,
+  setDayStatusSchema,
+  updateGroupRatesSchema,
+  updateRankColorsSchema,
 } from "@/validation/grid";
-import { reorderStaff, setGridCell, setWeeklyStatus } from "@/server/grid";
+import {
+  changeRankFromGrid,
+  reorderStaff,
+  resetWeekHours,
+  setDayStatus,
+  setGridCell,
+} from "@/server/grid";
+import { updateGroupRates, updateRankColors } from "@/server/settings";
 import { z } from "zod";
 import { runAction, type ActionState } from "./helpers";
 
@@ -366,17 +382,95 @@ export async function setCellAction(
   );
 }
 
-export async function setStatusAction(
+export async function setDayStatusAction(
   _previous: ActionState<unknown>,
   formData: FormData,
 ): Promise<ActionState<unknown>> {
   return runAction(
     formData,
-    { permission: P.HOURS_EDIT, schema: setStatusSchema, success: "Estado actualizado." },
+    { permission: P.HOURS_EDIT, schema: setDayStatusSchema, success: "Día actualizado." },
     async (input, context) => {
-      await setWeeklyStatus(input, context.actor);
+      await setDayStatus(input, context.actor);
       revalidatePath("/horas");
       revalidatePath("/");
+    },
+  );
+}
+
+export async function changeRankInlineAction(
+  _previous: ActionState<unknown>,
+  formData: FormData,
+): Promise<ActionState<unknown>> {
+  return runAction(
+    formData,
+    {
+      permission: P.STAFF_CHANGE_RANK,
+      schema: changeRankInlineSchema,
+      success: "Rango actualizado. Las liquidaciones cerradas no se tocaron.",
+    },
+    async (input, context) => {
+      await changeRankFromGrid(input, context.actor);
+      revalidateAll();
+    },
+  );
+}
+
+export async function resetWeekAction(
+  _previous: ActionState<unknown>,
+  formData: FormData,
+): Promise<ActionState<unknown>> {
+  return runAction(
+    formData,
+    {
+      permission: P.HOURS_DELETE,
+      schema: resetWeekSchema,
+      success: (result) => {
+        const value = result as { cleared: number };
+        return "Semana reiniciada: " + value.cleared + " registro(s) anulados.";
+      },
+    },
+    async (input, context) => {
+      const result = await resetWeekHours(input.weekId, context.actor);
+      revalidateAll();
+      return result;
+    },
+  );
+}
+
+export async function updateGroupRatesAction(
+  _previous: ActionState<unknown>,
+  formData: FormData,
+): Promise<ActionState<unknown>> {
+  return runAction(
+    formData,
+    {
+      permission: P.SETTINGS_RATES,
+      schema: updateGroupRatesSchema,
+      success: "Tarifas guardadas. Sólo cambian los períodos abiertos.",
+    },
+    async (input, context) => {
+      await updateGroupRates(input, context.actor);
+      revalidateAll();
+      revalidatePath("/configuracion");
+    },
+  );
+}
+
+export async function updateRankColorsAction(
+  _previous: ActionState<unknown>,
+  formData: FormData,
+): Promise<ActionState<unknown>> {
+  return runAction(
+    formData,
+    {
+      permission: P.SETTINGS_MANAGE,
+      schema: updateRankColorsSchema,
+      success: "Colores guardados.",
+    },
+    async (input, context) => {
+      await updateRankColors(input.colors, context.actor);
+      revalidatePath("/horas");
+      revalidatePath("/configuracion");
     },
   );
 }
@@ -605,6 +699,8 @@ export async function createUserAction(
   _previous: ActionState<unknown>,
   formData: FormData,
 ): Promise<ActionState<unknown>> {
+  // Exclusivo del Fundador: el permiso por sí solo no alcanza.
+  await requireFounder();
   return runAction(
     formData,
     { permission: P.USERS_CREATE, schema: createUserSchema, success: "Usuario creado." },
@@ -620,6 +716,8 @@ export async function updateUserAction(
   _previous: ActionState<unknown>,
   formData: FormData,
 ): Promise<ActionState<unknown>> {
+  // Exclusivo del Fundador: el permiso por sí solo no alcanza.
+  await requireFounder();
   return runAction(
     formData,
     { permission: P.USERS_EDIT, schema: updateUserSchema, success: "Usuario actualizado." },
@@ -634,6 +732,8 @@ export async function resetPasswordAction(
   _previous: ActionState<unknown>,
   formData: FormData,
 ): Promise<ActionState<unknown>> {
+  // Exclusivo del Fundador: el permiso por sí solo no alcanza.
+  await requireFounder();
   return runAction(
     formData,
     {
@@ -653,6 +753,8 @@ export async function revokeSessionAction(
   _previous: ActionState<unknown>,
   formData: FormData,
 ): Promise<ActionState<unknown>> {
+  // Exclusivo del Fundador: el permiso por sí solo no alcanza.
+  await requireFounder();
   return runAction(
     formData,
     {

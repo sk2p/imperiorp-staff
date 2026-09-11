@@ -70,84 +70,133 @@ export function isStaffGroup(value: unknown): value is StaffGroup {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Estado semanal                                                             */
+/* Estado del día                                                             */
 /* -------------------------------------------------------------------------- */
 
-export const WEEKLY_STATUSES = ["normal", "inactivo", "justificado", "anulado"] as const;
-export type WeeklyStatus = (typeof WEEKLY_STATUSES)[number];
+export const DAY_STATUSES = ["normal", "inactivo", "justificado", "anulado"] as const;
+export type DayStatus = (typeof DAY_STATUSES)[number];
 
-export interface WeeklyStatusDefinition {
-  readonly status: WeeklyStatus;
+export interface DayStatusDefinition {
+  readonly status: DayStatus;
   readonly label: string;
   readonly short: string;
   readonly description: string;
   /** Si sus horas suman al total y al importe del período. */
   readonly counts: boolean;
   readonly dot: string;
-  readonly rowTint: string;
+  /** Estilo de la CASILLA del día marcado. La fila no se tiñe entera. */
+  readonly cellTint: string;
   readonly badge: string;
 }
 
-export const WEEKLY_STATUS_DEFINITIONS: Readonly<Record<WeeklyStatus, WeeklyStatusDefinition>> = {
+export const DAY_STATUS_DEFINITIONS: Readonly<Record<DayStatus, DayStatusDefinition>> = {
   normal: {
     status: "normal",
-    label: "Normal · muestra horas",
+    label: "Normal · cuenta las horas",
     short: "Normal",
-    description: "Trabaja con normalidad. Sus horas cuentan y se le paga.",
+    description: "Día normal. Las horas cuentan y se pagan.",
     counts: true,
     dot: "bg-chalk-500",
-    rowTint: "",
+    cellTint: "",
     badge: "",
   },
   inactivo: {
     status: "inactivo",
     label: "Inactivo",
     short: "Inactivo",
-    description: "No estuvo activo este período. Sus horas no cuentan ni se pagan.",
+    description: "Ese día no estuvo activo. No suma horas ni se paga.",
     counts: false,
     dot: "bg-imperial-500",
-    rowTint: "bg-imperial-500/[0.06]",
+    cellTint: "border-imperial-500/45 bg-imperial-500/15 text-imperial-300",
     badge: "border-imperial-500/40 bg-imperial-500/12 text-imperial-300",
   },
   justificado: {
     status: "justificado",
     label: "Inactividad justificada",
     short: "Justificada",
-    description: "Ausencia avisada y aceptada. No se le descuenta ni se le paga.",
+    description: "Ausencia avisada y aceptada. Ese día no suma ni se paga.",
     counts: false,
     dot: "bg-amber-400",
-    rowTint: "bg-amber-400/[0.06]",
+    cellTint: "border-amber-400/45 bg-amber-400/15 text-amber-300",
     badge: "border-amber-400/40 bg-amber-400/12 text-amber-300",
   },
   anulado: {
     status: "anulado",
     label: "Anulado",
     short: "Anulado",
-    description: "El período de esta persona queda sin efecto. No suma ni se paga.",
+    description: "Ese día queda sin efecto. No suma ni se paga.",
     counts: false,
     dot: "bg-fuchsia-500",
-    rowTint: "bg-fuchsia-500/[0.06]",
+    cellTint: "border-fuchsia-500/45 bg-fuchsia-500/15 text-fuchsia-300",
     badge: "border-fuchsia-500/40 bg-fuchsia-500/12 text-fuchsia-300",
   },
 };
 
-export const WEEKLY_STATUS_LIST: readonly WeeklyStatusDefinition[] =
-  Object.values(WEEKLY_STATUS_DEFINITIONS);
+export const DAY_STATUS_LIST: readonly DayStatusDefinition[] =
+  Object.values(DAY_STATUS_DEFINITIONS);
 
-export function isWeeklyStatus(value: unknown): value is WeeklyStatus {
-  return typeof value === "string" && (WEEKLY_STATUSES as readonly string[]).includes(value);
+export function isDayStatus(value: unknown): value is DayStatus {
+  return typeof value === "string" && (DAY_STATUSES as readonly string[]).includes(value);
 }
 
 /**
- * Si un estado hace que la persona entre en la liquidación.
+ * Si un día entra en la liquidación.
  *
  * Es la regla que decide qué se paga, así que vive acá y no repartida por las
- * pantallas: sólo `normal` cobra.
+ * pantallas: sólo `normal` cuenta.
  */
 export function statusCounts(status: string): boolean {
-  return WEEKLY_STATUS_DEFINITIONS[status as WeeklyStatus]?.counts ?? true;
+  return DAY_STATUS_DEFINITIONS[status as DayStatus]?.counts ?? true;
 }
 
 export function statusLabel(status: string): string {
-  return WEEKLY_STATUS_DEFINITIONS[status as WeeklyStatus]?.short ?? status;
+  return DAY_STATUS_DEFINITIONS[status as DayStatus]?.short ?? status;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Colores por rango                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Color por defecto de cada rango, editable desde Configuración.
+ *
+ * La familia se reconoce por el tono —violetas la dirección y administración,
+ * verdes la moderación, azules el soporte— y dentro de cada una el color se
+ * aclara al bajar de rango, de modo que la jerarquía se lee sin tener que
+ * descifrar las siglas.
+ */
+export const DEFAULT_RANK_COLORS: Readonly<Record<string, string>> = {
+  DG: "#c026d3",
+  SUBDG: "#a855f7",
+  "ADM++": "#8b5cf6",
+  "ADM+": "#7c3aed",
+  ADM: "#ec4899",
+  "MOD++": "#22c55e",
+  "MOD+": "#4ade80",
+  MOD: "#86efac",
+  SE: "#6366f1",
+  SP: "#38bdf8",
+  SDP: "#7dd3fc",
+};
+
+/** Un hex `#rrggbb` válido. Se valida antes de guardarlo y antes de pintarlo. */
+export function isHexColor(value: unknown): value is string {
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
+}
+
+/**
+ * Decide si el texto sobre un color debe ser claro u oscuro.
+ *
+ * Usa la luminancia relativa en vez de un promedio simple: el ojo percibe el
+ * verde mucho más brillante que el azul, y un promedio deja texto ilegible
+ * sobre los verdes de moderación.
+ */
+export function readableTextOn(hex: string): "#0b0d10" | "#ffffff" {
+  if (!isHexColor(hex)) return "#ffffff";
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const channel = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const luminance = 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+  return luminance > 0.45 ? "#0b0d10" : "#ffffff";
 }

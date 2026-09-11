@@ -15,23 +15,20 @@ export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "succ
 export type ButtonSize = "sm" | "md" | "lg" | "icon";
 
 const BUTTON_BASE =
-  "relative inline-flex items-center justify-center gap-2 rounded-[10px] font-semibold " +
-  "whitespace-nowrap select-none transition-[background-color,border-color,transform,box-shadow,opacity] " +
-  "duration-150 ease-out active:scale-[0.97] disabled:pointer-events-none disabled:opacity-45 " +
+  "btn inline-flex items-center justify-center gap-2 rounded-[11px] font-semibold " +
+  "whitespace-nowrap select-none disabled:pointer-events-none disabled:opacity-45 " +
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-imperial-500";
 
 const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
-  primary:
-    "bg-imperial-500 text-white border border-imperial-400/30 shadow-[0_1px_0_rgb(255_255_255/0.16)_inset,0_6px_18px_-8px_rgb(229_22_44/0.85)] hover:bg-imperial-400",
+  primary: "btn-primary text-white",
+  success: "btn-success text-ink-950",
   secondary:
-    "bg-ink-800 text-chalk-50 border border-white/10 hover:bg-ink-700 hover:border-white/16",
+    "btn-quiet bg-ink-800 text-chalk-50 border border-white/10 hover:bg-ink-700 hover:border-white/20",
   outline:
-    "bg-transparent text-chalk-200 border border-white/12 hover:bg-white/[0.04] hover:text-white hover:border-white/22",
-  ghost: "bg-transparent text-chalk-400 hover:bg-white/[0.05] hover:text-white",
+    "btn-quiet bg-transparent text-chalk-200 border border-white/12 hover:bg-white/[0.05] hover:text-white hover:border-white/25",
+  ghost: "btn-quiet bg-transparent text-chalk-400 hover:bg-white/[0.06] hover:text-white",
   danger:
-    "bg-transparent text-imperial-400 border border-imperial-500/35 hover:bg-imperial-500/12 hover:border-imperial-500/60",
-  success:
-    "bg-jade-500 text-ink-950 border border-jade-400/30 hover:bg-jade-400 shadow-[0_6px_18px_-10px_rgb(16_185_129/0.9)]",
+    "btn-quiet bg-transparent text-imperial-400 border border-imperial-500/35 hover:bg-imperial-500/12 hover:border-imperial-500/60 hover:text-imperial-300",
 };
 
 const BUTTON_SIZES: Record<ButtonSize, string> = {

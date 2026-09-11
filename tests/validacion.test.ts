@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { cleanText, optionalText, reasonSchema } from "@/validation/common";
-import { setCellSchema, setStatusSchema } from "@/validation/grid";
+import { removeFromGridSchema, setCellSchema, setDayStatusSchema } from "@/validation/grid";
 import { z } from "zod";
 
 /**
@@ -59,7 +59,6 @@ describe("la planilla guarda sin mandar campos de más", () => {
 
     expect(resultado.success).toBe(true);
     expect(resultado.data?.minutes).toBe(150);
-    expect(resultado.data?.note).toBeNull();
   });
 
   it("acepta cero, que es como se borra una casilla", () => {
@@ -80,14 +79,27 @@ describe("la planilla guarda sin mandar campos de más", () => {
     ).toBe(false);
   });
 
-  it("acepta un cambio de estado sin nota", () => {
-    const resultado = setStatusSchema.safeParse({ ...base, status: "justificado" });
+  it("marca el estado de un día concreto", () => {
+    const resultado = setDayStatusSchema.safeParse({
+      ...base,
+      workDate: "2026-09-05",
+      status: "justificado",
+    });
     expect(resultado.success).toBe(true);
-    expect(resultado.data?.note).toBeNull();
+    expect(resultado.data?.workDate).toBe("2026-09-05");
   });
 
   it("rechaza un estado inventado", () => {
-    expect(setStatusSchema.safeParse({ ...base, status: "vacaciones" }).success).toBe(false);
+    expect(
+      setDayStatusSchema.safeParse({ ...base, workDate: "2026-09-05", status: "vacaciones" })
+        .success,
+    ).toBe(false);
+  });
+
+  it("la baja desde la planilla acepta omitir el motivo", () => {
+    const resultado = removeFromGridSchema.safeParse({ staffMemberId: base.staffMemberId });
+    expect(resultado.success).toBe(true);
+    expect(resultado.data?.reason).toBeNull();
   });
 });
 

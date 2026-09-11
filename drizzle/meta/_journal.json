@@ -15,6 +15,13 @@
       "when": 1789165268140,
       "tag": "0001_grilla-semanal",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789166683851,
+      "tag": "0002_estado-por-dia",
+      "breakpoints": true
     }
   ]
 }

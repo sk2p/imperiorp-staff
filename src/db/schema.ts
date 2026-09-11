@@ -211,6 +211,8 @@ export const rankRates = pgTable(
     label: varchar("label", { length: 60 }).notNull(),
     /** Unidades enteras de moneda por hora. */
     ratePerHour: bigint("rate_per_hour", { mode: "number" }).notNull(),
+    /** Color de la etiqueta del rango en la planilla. Hex `#rrggbb`. */
+    color: varchar("color", { length: 7 }).notNull().default("#6f747d"),
     version: integer("version").notNull().default(1),
     updatedAt: updatedAt(),
     updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
@@ -309,6 +311,14 @@ export const hourEntries = pgTable(
     /** Nota opcional del día. La grilla no la exige; el detalle manual sí la admite. */
     reason: varchar("reason", { length: 200 }),
 
+    /**
+     * Estado del DÍA: normal | inactivo | justificado | anulado.
+     * Se marca día por día porque una ausencia justificada es de un día
+     * concreto, no de la semana entera. Sólo los días en `normal` suman horas
+     * y se pagan.
+     */
+    status: varchar("status", { length: 16 }).notNull().default("normal"),
+
     recordedBy: uuid("recorded_by").references(() => users.id, { onDelete: "set null" }),
     recordedByUsername: varchar("recorded_by_username", { length: 32 }).notNull(),
 
@@ -340,7 +350,7 @@ export const hourEntries = pgTable(
     index("hour_entries_week_date_idx").on(table.weekId, table.workDate),
     index("hour_entries_recorded_by_idx").on(table.recordedBy),
     index("hour_entries_created_idx").on(table.createdAt),
-    check("hour_entries_minutes_positive", sql`${table.minutes} > 0`),
+    check("hour_entries_minutes_non_negative", sql`${table.minutes} >= 0`),
     check("hour_entries_minutes_max", sql`${table.minutes} <= 1440`),
   ],
 );
@@ -369,14 +379,6 @@ export const weeklyStaffRecords = pgTable(
     totalMinutes: integer("total_minutes").notNull().default(0),
     calculatedAmount: bigint("calculated_amount", { mode: "number" }).notNull().default(0),
     entryCount: integer("entry_count").notNull().default(0),
-
-    /**
-     * Estado de la persona en ESTE período: normal | inactivo | justificado | anulado.
-     * Es por período, no por persona: alguien puede estar inactivo esta semana
-     * y volver a la normalidad la siguiente sin perder su historial.
-     */
-    status: varchar("status", { length: 16 }).notNull().default("normal"),
-    statusNote: varchar("status_note", { length: 200 }),
 
     /** Una vez congelado, ningún camino normal del código puede modificarlo. */
     frozenAt: timestamp("frozen_at", { withTimezone: true }),

@@ -176,6 +176,21 @@ export async function requireOwner(): Promise<AuthContext> {
   return context;
 }
 
+/**
+ * Sólo el Fundador.
+ *
+ * Reservado a la administración de cuentas del panel: ver quién tiene acceso
+ * y poder restablecer contraseñas ajenas queda en una sola mano, no en todas
+ * las que tengan rol Owner.
+ */
+export async function requireFounder(): Promise<AuthContext> {
+  const context = await requireAuth();
+  if (context.user.role !== "FOUNDER") {
+    throw forbidden("La gestión de usuarios del panel está reservada al Fundador.");
+  }
+  return context;
+}
+
 /** Viewer actual o `null`. Para componentes que se adaptan sin exigir sesión. */
 export async function getViewer(): Promise<Viewer | null> {
   const context = await getAuthContext();

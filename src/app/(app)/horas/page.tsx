@@ -12,7 +12,7 @@ import {
   PageHeader,
   Stat,
 } from "@/components/ui/primitives";
-import { WEEKLY_STATUS_LIST } from "@/domain/groups";
+import { DAY_STATUS_LIST } from "@/domain/groups";
 import { formatMoney, formatMoneyCompact } from "@/domain/money";
 import { PERMISSIONS } from "@/domain/permissions";
 import {
@@ -152,12 +152,12 @@ export default async function HoursPage({
           title="Planilla semanal"
           description={
             isOpen && can(PERMISSIONS.HOURS_EDIT)
-              ? "Click en una casilla para cargar las horas · Click derecho sobre la fila para cambiar el estado"
+              ? "Click en una casilla para cargar horas · Click derecho en la casilla para marcar el día · Click derecho en el rango para cambiarlo"
               : "Vista de sólo lectura."
           }
           action={
             <div className="flex flex-wrap items-center gap-2">
-              {WEEKLY_STATUS_LIST.filter((status) => status.status !== "normal").map((status) => (
+              {DAY_STATUS_LIST.filter((status) => status.status !== "normal").map((status) => (
                 <span
                   key={status.status}
                   className={
@@ -193,6 +193,7 @@ export default async function HoursPage({
             canEdit={can(PERMISSIONS.HOURS_EDIT) && isOpen}
             canDelete={can(PERMISSIONS.STAFF_DELETE) && isOpen}
             canReorder={can(PERMISSIONS.STAFF_EDIT)}
+            canChangeRank={can(PERMISSIONS.STAFF_CHANGE_RANK) && isOpen}
           />
         )}
       </Card>

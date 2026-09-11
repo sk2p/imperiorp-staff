@@ -1,53 +1,51 @@
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 
 import { db, withTransaction, type Transaction } from "@/db";
-import { hourEntries, staffMembers, weeklyStaffRecords, type Week } from "@/db/schema";
+import { hourEntries, rankRates, staffMembers, weeklyStaffRecords, type Week } from "@/db/schema";
 import type { ActorContext } from "@/lib/auth/context";
 import { businessRule, concurrency, notFound, validation } from "@/lib/core/errors";
-import { formatMoney } from "@/domain/money";
 import {
+  DAY_STATUS_DEFINITIONS,
   groupForCategory,
-  isWeeklyStatus,
+  isDayStatus,
   statusCounts,
-  statusLabel,
-  WEEKLY_STATUS_DEFINITIONS,
+  type DayStatus,
   type StaffGroup,
-  type WeeklyStatus,
 } from "@/domain/groups";
 import { eachDayOfPeriod, formatCalendarDate, isDateWithinPeriod } from "@/domain/periods";
+import { categoryForRank, compareRankChange, rankTier, type StaffRank } from "@/domain/ranks";
 import { formatMinutes, MAX_MINUTES_PER_ENTRY } from "@/domain/time";
 import { appendAuditLog } from "./audit";
 import { loadWeekForWrite, recalculateWeekRecords } from "./weeks";
 
 /**
- * IMPERIO RP — Grilla semanal de horas.
+ * IMPERIO RP — Planilla semanal de horas.
  *
- * El equipo carga las horas como una planilla: una fila por persona, una
- * casilla por día. Cada casilla ES una entrada de `hour_entries`, así que se
- * conserva todo lo de antes —quién la cargó, cuándo, el historial completo— sin
- * que haya que describir un turno para anotar dos horas de un martes.
+ * Una fila por persona, una casilla por día. Cada casilla es una entrada real
+ * de `hour_entries`, así que se conserva quién la cargó, cuándo y todo el
+ * historial, sin obligar a describir un turno para anotar dos horas de un martes.
+ *
+ * El estado (inactivo, justificado, anulado) es del DÍA, no de la semana: una
+ * ausencia justificada corresponde a una fecha concreta.
  */
 
 export interface GridCell {
   readonly workDate: string;
   readonly minutes: number;
   readonly entryId: string | null;
+  readonly status: DayStatus;
   readonly recordedByUsername: string | null;
-  readonly note: string | null;
 }
 
 export interface GridRow {
   readonly staffMemberId: string;
-  readonly recordId: string | null;
   readonly name: string;
   readonly rank: string;
+  readonly rankColor: string;
   readonly category: string;
   readonly group: StaffGroup;
   readonly hourlyRate: number;
-  readonly displayOrder: number;
   readonly version: number;
-  readonly status: WeeklyStatus;
-  readonly statusNote: string | null;
   readonly days: readonly GridCell[];
   readonly totalMinutes: number;
   readonly amount: number;
@@ -77,9 +75,9 @@ export interface WeekGrid {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Arma la planilla completa del período en dos consultas, sin importar cuántas
- * personas haya: una trae las filas y otra todas las casillas. Consultar los
- * días de cada persona por separado sería una consulta por fila.
+ * Arma la planilla en dos consultas, sin importar cuántas personas haya: una
+ * trae las filas y otra todas las casillas. Pedir los días de cada persona por
+ * separado sería una consulta por fila.
  */
 export async function getWeekGrid(week: Week): Promise<WeekGrid> {
   const days = eachDayOfPeriod(week.startDate, week.endDate);
@@ -88,22 +86,20 @@ export async function getWeekGrid(week: Week): Promise<WeekGrid> {
     db
       .select({
         staffMemberId: weeklyStaffRecords.staffMemberId,
-        recordId: weeklyStaffRecords.id,
         name: weeklyStaffRecords.staffNameSnapshot,
         rank: weeklyStaffRecords.rankSnapshot,
         category: weeklyStaffRecords.categorySnapshot,
         hourlyRate: weeklyStaffRecords.hourlyRateSnapshot,
         totalMinutes: weeklyStaffRecords.totalMinutes,
         amount: weeklyStaffRecords.calculatedAmount,
-        status: weeklyStaffRecords.status,
-        statusNote: weeklyStaffRecords.statusNote,
-        version: weeklyStaffRecords.version,
         displayOrder: staffMembers.displayOrder,
+        version: staffMembers.version,
+        rankColor: rankRates.color,
       })
       .from(weeklyStaffRecords)
       .innerJoin(staffMembers, eq(weeklyStaffRecords.staffMemberId, staffMembers.id))
-      .where(eq(weeklyStaffRecords.weekId, week.id))
-      .orderBy(asc(staffMembers.displayOrder), asc(weeklyStaffRecords.staffNameSnapshot)),
+      .leftJoin(rankRates, eq(rankRates.rank, weeklyStaffRecords.rankSnapshot))
+      .where(eq(weeklyStaffRecords.weekId, week.id)),
 
     db
       .select({
@@ -111,8 +107,8 @@ export async function getWeekGrid(week: Week): Promise<WeekGrid> {
         workDate: hourEntries.workDate,
         minutes: hourEntries.minutes,
         entryId: hourEntries.id,
+        status: hourEntries.status,
         recordedByUsername: hourEntries.recordedByUsername,
-        note: hourEntries.reason,
       })
       .from(hourEntries)
       .where(and(eq(hourEntries.weekId, week.id), isNull(hourEntries.voidedAt))),
@@ -129,16 +125,13 @@ export async function getWeekGrid(week: Week): Promise<WeekGrid> {
     const perStaff = cellsByStaff.get(record.staffMemberId);
     return {
       staffMemberId: record.staffMemberId,
-      recordId: record.recordId,
       name: record.name,
       rank: record.rank,
+      rankColor: record.rankColor ?? "#6f747d",
       category: record.category,
       group: groupForCategory(record.category),
       hourlyRate: record.hourlyRate,
-      displayOrder: record.displayOrder,
       version: record.version,
-      status: (isWeeklyStatus(record.status) ? record.status : "normal") as WeeklyStatus,
-      statusNote: record.statusNote,
       totalMinutes: record.totalMinutes,
       amount: record.amount,
       days: days.map((workDate) => {
@@ -147,38 +140,49 @@ export async function getWeekGrid(week: Week): Promise<WeekGrid> {
           workDate,
           minutes: cell?.minutes ?? 0,
           entryId: cell?.entryId ?? null,
+          status: (isDayStatus(cell?.status) ? cell.status : "normal") as DayStatus,
           recordedByUsername: cell?.recordedByUsername ?? null,
-          note: cell?.note ?? null,
         };
       }),
     };
   });
 
+  /**
+   * Orden dentro de cada grupo: primero el rango más alto (DG antes que SUBDG,
+   * ADM++ antes que ADM+), y entre iguales manda el orden manual que definió el
+   * equipo arrastrando las filas.
+   */
+  const byRankThenManual = (a: GridRow, b: GridRow): number => {
+    const tierDelta = rankTier(b.rank) - rankTier(a.rank);
+    if (tierDelta !== 0) return tierDelta;
+
+    const orderA = records.find((r) => r.staffMemberId === a.staffMemberId)?.displayOrder ?? 0;
+    const orderB = records.find((r) => r.staffMemberId === b.staffMemberId)?.displayOrder ?? 0;
+    if (orderA !== orderB) return orderA - orderB;
+
+    return a.name.localeCompare(b.name, "es");
+  };
+
   const groups: GridGroup[] = (["HIGH_STAFF", "MID_STAFF", "LOW_STAFF"] as const)
     .map((group) => {
-      const groupRows = rows.filter((row) => row.group === group);
-      const counting = groupRows.filter((row) => statusCounts(row.status));
+      const groupRows = rows.filter((row) => row.group === group).sort(byRankThenManual);
       return {
         group,
-        // La tarifa del encabezado es la del grupo; dentro todos los rangos
-        // de una misma familia cobran igual.
         hourlyRate: groupRows[0]?.hourlyRate ?? 0,
         memberCount: groupRows.length,
-        totalMinutes: counting.reduce((sum, row) => sum + row.totalMinutes, 0),
-        totalAmount: counting.reduce((sum, row) => sum + row.amount, 0),
+        totalMinutes: groupRows.reduce((sum, row) => sum + row.totalMinutes, 0),
+        totalAmount: groupRows.reduce((sum, row) => sum + row.amount, 0),
         rows: groupRows,
       };
     })
     .filter((group) => group.rows.length > 0);
 
-  const counting = rows.filter((row) => statusCounts(row.status));
-
   return {
     weekId: week.id,
     days,
     groups,
-    totalMinutes: counting.reduce((sum, row) => sum + row.totalMinutes, 0),
-    totalAmount: counting.reduce((sum, row) => sum + row.amount, 0),
+    totalMinutes: rows.reduce((sum, row) => sum + row.totalMinutes, 0),
+    totalAmount: rows.reduce((sum, row) => sum + row.amount, 0),
     memberCount: rows.length,
     editable: week.status === "open",
   };
@@ -188,20 +192,50 @@ export async function getWeekGrid(week: Week): Promise<WeekGrid> {
 /* Escritura de una casilla                                                   */
 /* -------------------------------------------------------------------------- */
 
+async function loadMember(tx: Transaction, staffMemberId: string) {
+  const [member] = await tx
+    .select()
+    .from(staffMembers)
+    .where(eq(staffMembers.id, staffMemberId))
+    .limit(1)
+    .for("update");
+
+  if (!member) throw notFound("El miembro del staff");
+  return member;
+}
+
+/** Entrada vigente de un día, si existe. */
+async function loadCell(tx: Transaction, weekId: string, staffMemberId: string, workDate: string) {
+  const [entry] = await tx
+    .select()
+    .from(hourEntries)
+    .where(
+      and(
+        eq(hourEntries.staffMemberId, staffMemberId),
+        eq(hourEntries.weekId, weekId),
+        eq(hourEntries.workDate, workDate),
+        isNull(hourEntries.voidedAt),
+      ),
+    )
+    .limit(1)
+    .for("update");
+
+  return entry ?? null;
+}
+
 export interface SetCellInput {
   readonly weekId: string;
   readonly staffMemberId: string;
   readonly workDate: string;
   readonly minutes: number;
-  readonly note?: string | null;
 }
 
 /**
- * Escribe una casilla de la planilla.
+ * Escribe las horas de una casilla.
  *
- * Poner 0 no deja un registro en cero: anula la entrada del día. Así la
- * auditoría distingue "nunca cargó ese día" de "cargó 3 h y alguien las borró",
- * que es justo lo que hay que poder responder después.
+ * Poner cero no deja un registro vacío: anula la entrada, salvo que el día
+ * tenga un estado marcado que haya que conservar. Así la auditoría distingue
+ * "nunca cargó ese día" de "cargó 3 h y alguien las borró".
  */
 export async function setGridCell(input: SetCellInput, actor: ActorContext): Promise<void> {
   if (!Number.isInteger(input.minutes) || input.minutes < 0) {
@@ -217,73 +251,47 @@ export async function setGridCell(input: SetCellInput, actor: ActorContext): Pro
 
   await withTransaction(async (tx) => {
     const week = await loadWeekForWrite(tx, input.weekId);
-
     if (!isDateWithinPeriod(input.workDate, week.startDate, week.endDate)) {
       throw validation("Ese día no pertenece al período.", { workDate: ["Fecha fuera de rango."] });
     }
 
-    const [member] = await tx
-      .select({ id: staffMembers.id, name: staffMembers.name, archivedAt: staffMembers.archivedAt })
-      .from(staffMembers)
-      .where(eq(staffMembers.id, input.staffMemberId))
-      .limit(1);
-
-    if (!member) throw notFound("El miembro del staff");
+    const member = await loadMember(tx, input.staffMemberId);
     if (member.archivedAt) {
       throw businessRule(member.name + " está archivado y no puede recibir horas.");
     }
 
-    const [previous] = await tx
-      .select()
-      .from(hourEntries)
-      .where(
-        and(
-          eq(hourEntries.staffMemberId, input.staffMemberId),
-          eq(hourEntries.weekId, input.weekId),
-          eq(hourEntries.workDate, input.workDate),
-          isNull(hourEntries.voidedAt),
-        ),
-      )
-      .limit(1)
-      .for("update");
-
+    const previous = await loadCell(tx, input.weekId, input.staffMemberId, input.workDate);
     const previousMinutes = previous?.minutes ?? 0;
-    if (previousMinutes === input.minutes && (previous?.reason ?? null) === (input.note ?? null)) {
-      return; // Nada cambió: no se ensucia la auditoría con un registro vacío.
-    }
+    if (previousMinutes === input.minutes) return;
 
-    if (input.minutes === 0) {
-      if (!previous) return;
-      await tx
-        .update(hourEntries)
-        .set({
-          voidedAt: new Date(),
-          voidedBy: actor.id,
-          voidReason: "Casilla puesta en cero desde la planilla",
-          version: previous.version + 1,
-          updatedAt: new Date(),
-        })
-        .where(eq(hourEntries.id, previous.id));
-    } else if (previous) {
-      const [updated] = await tx
-        .update(hourEntries)
-        .set({
-          minutes: input.minutes,
-          reason: input.note ?? previous.reason,
-          version: previous.version + 1,
-          updatedAt: new Date(),
-        })
-        .where(and(eq(hourEntries.id, previous.id), eq(hourEntries.version, previous.version)))
-        .returning();
-
-      if (!updated) throw concurrency();
+    if (previous) {
+      // Si queda en cero y el día no tiene estado que preservar, se anula.
+      if (input.minutes === 0 && previous.status === "normal") {
+        await tx
+          .update(hourEntries)
+          .set({
+            voidedAt: new Date(),
+            voidedBy: actor.id,
+            voidReason: "Casilla puesta en cero desde la planilla",
+            version: previous.version + 1,
+            updatedAt: new Date(),
+          })
+          .where(eq(hourEntries.id, previous.id));
+      } else {
+        const [updated] = await tx
+          .update(hourEntries)
+          .set({ minutes: input.minutes, version: previous.version + 1, updatedAt: new Date() })
+          .where(and(eq(hourEntries.id, previous.id), eq(hourEntries.version, previous.version)))
+          .returning();
+        if (!updated) throw concurrency();
+      }
     } else {
+      if (input.minutes === 0) return;
       await tx.insert(hourEntries).values({
         staffMemberId: input.staffMemberId,
         weekId: input.weekId,
         workDate: input.workDate,
         minutes: input.minutes,
-        reason: input.note ?? null,
         recordedBy: actor.id,
         recordedByUsername: actor.username,
       });
@@ -309,72 +317,154 @@ export async function setGridCell(input: SetCellInput, actor: ActorContext): Pro
         formatMinutes(previousMinutes) +
         " → " +
         formatMinutes(input.minutes),
-      before: { minutos: previousMinutes, duracion: formatMinutes(previousMinutes) },
-      after: { minutos: input.minutes, duracion: formatMinutes(input.minutes) },
+      before: { minutos: previousMinutes },
+      after: { minutos: input.minutes },
       metadata: { weekId: input.weekId, staffMemberId: input.staffMemberId, dia: input.workDate },
     });
   });
 }
 
 /* -------------------------------------------------------------------------- */
-/* Estado semanal                                                             */
+/* Estado de un día                                                           */
 /* -------------------------------------------------------------------------- */
 
-export async function setWeeklyStatus(
-  input: { weekId: string; staffMemberId: string; status: WeeklyStatus; note?: string | null },
-  actor: ActorContext,
-): Promise<void> {
+export interface SetDayStatusInput {
+  readonly weekId: string;
+  readonly staffMemberId: string;
+  readonly workDate: string;
+  readonly status: DayStatus;
+}
+
+/**
+ * Marca un día como inactivo, justificado o anulado.
+ *
+ * Un día marcado deja de sumar horas y de pagarse, pero la cantidad cargada se
+ * conserva: después se puede ver que tenía 3 h y por qué no se pagaron.
+ */
+export async function setDayStatus(input: SetDayStatusInput, actor: ActorContext): Promise<void> {
   await withTransaction(async (tx) => {
-    await loadWeekForWrite(tx, input.weekId);
-
-    const [record] = await tx
-      .select()
-      .from(weeklyStaffRecords)
-      .where(
-        and(
-          eq(weeklyStaffRecords.weekId, input.weekId),
-          eq(weeklyStaffRecords.staffMemberId, input.staffMemberId),
-        ),
-      )
-      .limit(1)
-      .for("update");
-
-    if (!record) throw notFound("La liquidación de ese miembro");
-    if (record.status === input.status && (record.statusNote ?? null) === (input.note ?? null)) {
-      return;
+    const week = await loadWeekForWrite(tx, input.weekId);
+    if (!isDateWithinPeriod(input.workDate, week.startDate, week.endDate)) {
+      throw validation("Ese día no pertenece al período.", { workDate: ["Fecha fuera de rango."] });
     }
 
-    await tx
-      .update(weeklyStaffRecords)
-      .set({
-        status: input.status,
-        statusNote: input.note ?? null,
-        version: record.version + 1,
-        updatedAt: new Date(),
-      })
-      .where(eq(weeklyStaffRecords.id, record.id));
+    const member = await loadMember(tx, input.staffMemberId);
+    const previous = await loadCell(tx, input.weekId, input.staffMemberId, input.workDate);
+    const previousStatus = (previous?.status ?? "normal") as DayStatus;
 
-    // El importe depende del estado, así que se vuelve a calcular.
+    if (previousStatus === input.status) return;
+
+    if (previous) {
+      // Volver a normal un día sin horas no deja rastro inútil: se anula.
+      if (input.status === "normal" && previous.minutes === 0) {
+        await tx
+          .update(hourEntries)
+          .set({
+            voidedAt: new Date(),
+            voidedBy: actor.id,
+            voidReason: "Marca de estado retirada desde la planilla",
+            version: previous.version + 1,
+            updatedAt: new Date(),
+          })
+          .where(eq(hourEntries.id, previous.id));
+      } else {
+        await tx
+          .update(hourEntries)
+          .set({ status: input.status, version: previous.version + 1, updatedAt: new Date() })
+          .where(eq(hourEntries.id, previous.id));
+      }
+    } else {
+      if (input.status === "normal") return;
+      // Un día sin horas pero marcado necesita una fila que sostenga la marca.
+      await tx.insert(hourEntries).values({
+        staffMemberId: input.staffMemberId,
+        weekId: input.weekId,
+        workDate: input.workDate,
+        minutes: 0,
+        status: input.status,
+        recordedBy: actor.id,
+        recordedByUsername: actor.username,
+      });
+    }
+
     await recalculateWeekRecords(tx, input.weekId);
 
-    const definition = WEEKLY_STATUS_DEFINITIONS[input.status];
+    const definition = DAY_STATUS_DEFINITIONS[input.status];
 
     await appendAuditLog(tx, {
       actor,
-      action: "STAFF_UPDATED",
-      entity: "weekly_staff_records",
-      entityId: record.id,
+      action: "HOURS_UPDATED",
+      entity: "hour_entries",
+      entityId: previous?.id ?? input.staffMemberId,
       summary:
-        record.staffNameSnapshot +
+        member.name +
+        " · " +
+        formatCalendarDate(input.workDate) +
         ": " +
-        statusLabel(record.status) +
-        " → " +
         definition.short +
-        (definition.counts ? "" : " (no cobra este período)"),
-      before: { estado: record.status, importe: record.calculatedAmount },
-      after: { estado: input.status, cobra: definition.counts },
-      reason: input.note ?? null,
-      metadata: { weekId: input.weekId, staffMemberId: input.staffMemberId },
+        (statusCounts(input.status) ? "" : " (no cuenta)"),
+      before: { estado: previousStatus, minutos: previous?.minutes ?? 0 },
+      after: { estado: input.status, cuenta: definition.counts },
+      metadata: { weekId: input.weekId, staffMemberId: input.staffMemberId, dia: input.workDate },
+    });
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Cambio de rango desde la planilla                                          */
+/* -------------------------------------------------------------------------- */
+
+export async function changeRankFromGrid(
+  input: { staffMemberId: string; rank: StaffRank; weekId: string },
+  actor: ActorContext,
+): Promise<void> {
+  await withTransaction(async (tx) => {
+    const member = await loadMember(tx, input.staffMemberId);
+
+    if (member.rank === input.rank) return;
+    if (member.archivedAt) {
+      throw businessRule("No se puede cambiar el rango de un miembro archivado.");
+    }
+
+    const changeType = compareRankChange(member.rank, input.rank);
+
+    await tx
+      .update(staffMembers)
+      .set({
+        rank: input.rank,
+        category: categoryForRank(input.rank),
+        version: member.version + 1,
+        updatedAt: new Date(),
+      })
+      .where(eq(staffMembers.id, member.id));
+
+    await tx.execute(sql`
+      insert into staff_rank_history
+        (staff_member_id, from_rank, to_rank, change_type, reason, changed_by, changed_by_username, week_id)
+      values (
+        ${member.id}::uuid, ${member.rank}, ${input.rank}, ${changeType},
+        'Cambio desde la planilla de horas', ${actor.id}::uuid, ${actor.username}, ${input.weekId}::uuid
+      )
+    `);
+
+    // La tarifa cambia con el rango, así que los períodos abiertos se recalculan.
+    const openWeeks = await tx
+      .select({ id: sql<string>`id` })
+      .from(sql`weeks`)
+      .where(sql`status = 'open'`);
+    for (const open of openWeeks) {
+      await recalculateWeekRecords(tx, open.id);
+    }
+
+    await appendAuditLog(tx, {
+      actor,
+      action: "STAFF_RANK_CHANGED",
+      entity: "staff_members",
+      entityId: member.id,
+      summary: "Cambió el rango de " + member.name + ": " + member.rank + " → " + input.rank,
+      before: { rango: member.rank, categoria: member.category },
+      after: { rango: input.rank, categoria: categoryForRank(input.rank) },
+      metadata: { tipoDeCambio: changeType, desde: "planilla" },
     });
   });
 }
@@ -384,9 +474,9 @@ export async function setWeeklyStatus(
 /* -------------------------------------------------------------------------- */
 
 /**
- * Reordena la lista. Se recibe el orden completo del grupo y se reescribe en un
- * solo statement: enviar movimientos sueltos ("subir uno") haría que dos
- * personas reordenando a la vez terminaran con posiciones cruzadas.
+ * Reordena la lista. Se recibe el orden completo del grupo y se reescribe de
+ * una vez: enviar movimientos sueltos ("subir uno") haría que dos personas
+ * reordenando a la vez terminaran con posiciones cruzadas.
  */
 export async function reorderStaff(
   staffMemberIds: readonly string[],
@@ -395,7 +485,16 @@ export async function reorderStaff(
   if (staffMemberIds.length === 0) return;
 
   await withTransaction(async (tx) => {
-    await applyOrder(tx, staffMemberIds);
+    const values = staffMemberIds
+      .map((id, index) => sql`(${id}::uuid, ${index}::int)`)
+      .reduce((acc, part, index) => (index === 0 ? part : sql`${acc}, ${part}`));
+
+    await tx.execute(sql`
+      update staff_members
+         set display_order = nuevo.posicion, updated_at = now()
+        from (values ${values}) as nuevo(id, posicion)
+       where staff_members.id = nuevo.id
+    `);
 
     await appendAuditLog(tx, {
       actor,
@@ -403,41 +502,11 @@ export async function reorderStaff(
       entity: "staff_members",
       entityId: staffMemberIds[0] ?? "",
       summary: "Reordenó la lista de staff (" + staffMemberIds.length + " posiciones)",
-      after: { orden: staffMemberIds.length },
+      after: { posiciones: staffMemberIds.length },
     });
   });
 }
 
-async function applyOrder(tx: Transaction, ids: readonly string[]): Promise<void> {
-  const values = ids
-    .map((id, index) => sql`(${id}::uuid, ${index}::int)`)
-    .reduce((acc, part, index) => (index === 0 ? part : sql`${acc}, ${part}`));
-
-  await tx.execute(sql`
-    update staff_members
-       set display_order = nuevo.posicion,
-           updated_at = now()
-      from (values ${values}) as nuevo(id, posicion)
-     where staff_members.id = nuevo.id
-  `);
-}
-
-/** Asigna un orden inicial coherente a quien todavía no lo tiene. */
-export async function ensureDisplayOrder(): Promise<void> {
-  await db.execute(sql`
-    with ordenado as (
-      select id, row_number() over (order by rank desc, name asc) * 10 as posicion
-      from staff_members
-      where display_order = 0
-    )
-    update staff_members
-       set display_order = ordenado.posicion
-      from ordenado
-     where staff_members.id = ordenado.id
-  `);
-}
-
-/** Valor que corresponde al final de la lista, para una alta nueva. */
 export async function nextDisplayOrder(): Promise<number> {
   const [row] = await db
     .select({ max: sql<number>`coalesce(max(${staffMembers.displayOrder}), 0)::int` })
@@ -446,14 +515,53 @@ export async function nextDisplayOrder(): Promise<number> {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Resumen para encabezados                                                   */
+/* Reinicio de la semana                                                      */
 /* -------------------------------------------------------------------------- */
 
-export function describeGroupTotals(group: GridGroup): string {
-  return (
-    formatMoney(group.hourlyRate) +
-    "/hora · " +
-    group.memberCount +
-    (group.memberCount === 1 ? " usuario" : " usuarios")
-  );
+/**
+ * Deja todas las horas del período en cero y quita las marcas de estado.
+ *
+ * Los miembros permanecen en la planilla. Nada se borra: las entradas se anulan
+ * con motivo, así que el historial sigue explicando qué había antes del
+ * reinicio y quién lo hizo.
+ */
+export async function resetWeekHours(
+  weekId: string,
+  actor: ActorContext,
+): Promise<{ cleared: number }> {
+  return withTransaction(async (tx) => {
+    const week = await loadWeekForWrite(tx, weekId);
+
+    const cleared = await tx
+      .update(hourEntries)
+      .set({
+        voidedAt: new Date(),
+        voidedBy: actor.id,
+        voidReason: "Reinicio de las horas del período",
+        updatedAt: new Date(),
+      })
+      .where(and(eq(hourEntries.weekId, weekId), isNull(hourEntries.voidedAt)))
+      .returning({ id: hourEntries.id });
+
+    await recalculateWeekRecords(tx, weekId);
+
+    await appendAuditLog(tx, {
+      actor,
+      action: "HOURS_VOIDED",
+      entity: "weeks",
+      entityId: weekId,
+      summary:
+        "Reinició las horas del período " +
+        week.code +
+        " (" +
+        cleared.length +
+        " registros anulados)",
+      after: { registrosAnulados: cleared.length },
+      reason: "Reinicio manual desde Configuración",
+    });
+
+    return { cleared: cleared.length };
+  });
 }
+
+export { asc };
