@@ -78,7 +78,7 @@ function securityHeaders(response: NextResponse, nonce: string): NextResponse {
   return response;
 }
 
-export function middleware(request: NextRequest): NextResponse {
+export function proxy(request: NextRequest): NextResponse {
   const { pathname, search } = request.nextUrl;
   const nonce = crypto.randomUUID().replace(/-/g, "");
 
