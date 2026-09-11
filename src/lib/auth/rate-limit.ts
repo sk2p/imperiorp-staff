@@ -115,7 +115,14 @@ async function bumpBucket(bucketKey: string, maxAttempts: number): Promise<RateL
    * venció y aplica el bloqueo al llegar al tope. Hacerlo en varias consultas
    * abriría una carrera que permitiría superar el límite con peticiones
    * simultáneas.
+   *
+   * Los `::timestamptz` no son decorativos: dentro de un `case … else null`,
+   * PostgreSQL no tiene de dónde deducir el tipo del parámetro y lo asume
+   * `text`, con lo que la asignación a una columna de fecha falla con el error
+   * 42804. El cast le da el tipo explícitamente.
    */
+  const lockedUntil = new Date(now.getTime() + windowMs);
+
   const [record] = await db
     .insert(loginAttempts)
     .values({ bucketKey, attempts: 1, firstAttemptAt: now, lastAttemptAt: now })
@@ -123,18 +130,18 @@ async function bumpBucket(bucketKey: string, maxAttempts: number): Promise<RateL
       target: loginAttempts.bucketKey,
       set: {
         attempts: sql`case
-          when ${loginAttempts.firstAttemptAt} < ${windowStart} then 1
+          when ${loginAttempts.firstAttemptAt} < ${windowStart}::timestamptz then 1
           else ${loginAttempts.attempts} + 1
         end`,
         firstAttemptAt: sql`case
-          when ${loginAttempts.firstAttemptAt} < ${windowStart} then ${now}
+          when ${loginAttempts.firstAttemptAt} < ${windowStart}::timestamptz then ${now}::timestamptz
           else ${loginAttempts.firstAttemptAt}
         end`,
         lastAttemptAt: now,
         lockedUntil: sql`case
-          when ${loginAttempts.firstAttemptAt} >= ${windowStart}
+          when ${loginAttempts.firstAttemptAt} >= ${windowStart}::timestamptz
            and ${loginAttempts.attempts} + 1 >= ${maxAttempts}
-          then ${new Date(now.getTime() + windowMs)}
+          then ${lockedUntil}::timestamptz
           else null
         end`,
       },

@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { requestMetadata, requireAuth, requirePermission } from "@/lib/auth/context";
+import { isAppError } from "@/lib/core/errors";
+import { logger, newTraceId } from "@/lib/core/logger";
 import { PERMISSIONS } from "@/domain/permissions";
 import { formatMinutes } from "@/domain/time";
 import { formatMoney } from "@/domain/money";
@@ -113,17 +115,30 @@ export async function loginAction(
       userAgent: metadata.userAgent,
     });
   } catch (error) {
-    const isRateLimited =
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      error.code === "RATE_LIMITED";
+    /**
+     * Sólo se muestra el mensaje de un `AppError`, que está escrito a propósito
+     * para el usuario. Cualquier otra excepción —una consulta fallida, un
+     * problema de red con la base— se degrada a un mensaje genérico.
+     *
+     * Devolver `error.message` a secas filtraba la consulta SQL entera, con
+     * nombres de tablas y columnas, a una pantalla que ve cualquiera sin estar
+     * autenticado.
+     */
+    if (isAppError(error)) {
+      return {
+        status: "error",
+        message: error.message,
+        code: error.code,
+      };
+    }
+
+    const traceId = newTraceId();
+    logger.error("Error inesperado durante el acceso", { error, traceId });
 
     return {
       status: "error",
-      message:
-        error instanceof Error ? error.message : "No se pudo iniciar sesión. Intentá de nuevo.",
-      code: isRateLimited ? "RATE_LIMITED" : "UNAUTHENTICATED",
+      message: "No se pudo iniciar sesión. Probá de nuevo en un momento. (ref " + traceId + ")",
+      code: "INTERNAL",
     };
   }
 
