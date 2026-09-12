@@ -13,7 +13,7 @@ import {
 } from "@/domain/clock";
 import { groupForRank, type StaffGroup } from "@/domain/groups";
 import { rankTier } from "@/domain/ranks";
-import { recalculateWeekRecords } from "./weeks";
+import { recalculateWeekRecords, weekBreakdowns } from "./weeks";
 
 /**
  * IMPERIO RP — Fichajes.
@@ -547,13 +547,7 @@ export async function periodSummary(staffMemberId: string): Promise<{
   readonly seconds: number;
   readonly days: readonly { readonly workDate: string; readonly seconds: number }[];
 } | null> {
-  const [semana] = await db
-    .select({ id: weeks.id, startDate: weeks.startDate, endDate: weeks.endDate })
-    .from(weeks)
-    .where(eq(weeks.status, "open"))
-    .orderBy(desc(weeks.startDate))
-    .limit(1);
-
+  const semana = await currentPeriod();
   if (!semana) return null;
 
   const filas = await db
@@ -575,6 +569,51 @@ export async function periodSummary(staffMemberId: string): Promise<{
     seconds: filas.reduce((suma, fila) => suma + fila.seconds, 0),
     days: filas,
   };
+}
+
+/**
+ * El período en curso: el que contiene el día de hoy.
+ *
+ * Antes se tomaba el abierto con la fecha de inicio más nueva. Sirve mientras
+ * haya uno solo, pero el día que se abre el siguiente sin cerrar el anterior
+ * hay dos abiertos, y el criterio de "el más nuevo" elige uno que puede no
+ * haber empezado todavía: alguien pregunta sus horas de hoy y el bot le
+ * contesta las de un período que arranca el sábado que viene, o sea cero.
+ *
+ * El día de hoy es el que manda. Si ninguno lo contiene —un hueco entre
+ * períodos, o el nuevo todavía sin crear— recién ahí se cae al más reciente,
+ * que al menos es el último que existió.
+ */
+export async function currentPeriod(): Promise<{
+  readonly id: string;
+  readonly startDate: string;
+  readonly endDate: string;
+} | null> {
+  const hoy = localDate();
+
+  const [contiene] = await db
+    .select({ id: weeks.id, startDate: weeks.startDate, endDate: weeks.endDate })
+    .from(weeks)
+    .where(
+      and(
+        eq(weeks.status, "open"),
+        sql`${weeks.startDate} <= ${hoy}`,
+        sql`${weeks.endDate} >= ${hoy}`,
+      ),
+    )
+    .orderBy(desc(weeks.startDate))
+    .limit(1);
+
+  if (contiene) return contiene;
+
+  const [reciente] = await db
+    .select({ id: weeks.id, startDate: weeks.startDate, endDate: weeks.endDate })
+    .from(weeks)
+    .where(eq(weeks.status, "open"))
+    .orderBy(desc(weeks.startDate))
+    .limit(1);
+
+  return reciente ?? null;
 }
 
 /** La liquidación congelada de un período, para anunciarla al cerrarlo. */
@@ -604,4 +643,81 @@ export async function frozenSettlement(weekId: string): Promise<
 export async function findWeekByCode(code: string): Promise<string | null> {
   const [fila] = await db.select({ id: weeks.id }).from(weeks).where(eq(weeks.code, code)).limit(1);
   return fila?.id ?? null;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Estado del período, para Discord                                           */
+/* -------------------------------------------------------------------------- */
+/**
+ * La foto del período en curso, la misma que muestra la página.
+ *
+ * Que el bot y la web cuenten cosas distintas es peor que no tener bot: la
+ * primera vez que los números no coinciden, nadie vuelve a creerle a ninguno de
+ * los dos. Por eso el desglose sale de la misma consulta que usa la pantalla de
+ * períodos, no de una cuenta paralela escrita para el bot.
+ */
+export interface PeriodOverview {
+  readonly startDate: string;
+  readonly endDate: string;
+  readonly totalMinutes: number;
+  readonly totalAmount: number;
+  readonly memberCount: number;
+  readonly membersWithHours: number;
+  readonly groups: readonly {
+    readonly label: string;
+    readonly minutes: number;
+    readonly amount: number;
+    readonly members: number;
+  }[];
+  readonly top: readonly {
+    readonly name: string;
+    readonly rank: string;
+    readonly minutes: number;
+  }[];
+  /** Quiénes figuran en el período y todavía no cargaron ni un minuto. */
+  readonly sinCargar: readonly { readonly name: string; readonly rank: string }[];
+  readonly totalSinCargar: number;
+}
+
+export async function periodOverview(): Promise<PeriodOverview | null> {
+  const semana = await currentPeriod();
+  if (!semana) return null;
+
+  const [desgloses, [totales], enCero] = await Promise.all([
+    weekBreakdowns([semana.id]),
+    db
+      .select({
+        memberCount: sql<number>`count(*)::int`,
+        totalAmount:
+          sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`.mapWith(
+            Number,
+          ),
+      })
+      .from(weeklyStaffRecords)
+      .where(eq(weeklyStaffRecords.weekId, semana.id)),
+    db
+      .select({
+        name: weeklyStaffRecords.staffNameSnapshot,
+        rank: weeklyStaffRecords.rankSnapshot,
+      })
+      .from(weeklyStaffRecords)
+      .where(and(eq(weeklyStaffRecords.weekId, semana.id), eq(weeklyStaffRecords.totalMinutes, 0)))
+      .orderBy(asc(weeklyStaffRecords.staffNameSnapshot)),
+  ]);
+
+  const desglose = desgloses.get(semana.id);
+
+  return {
+    startDate: semana.startDate,
+    endDate: semana.endDate,
+    totalMinutes: desglose?.totalMinutes ?? 0,
+    totalAmount: totales?.totalAmount ?? 0,
+    memberCount: totales?.memberCount ?? 0,
+    membersWithHours: desglose?.membersWithHours ?? 0,
+    groups: desglose?.groups ?? [],
+    top: desglose?.top ?? [],
+    // Ocho alcanzan para que se entienda; la lista completa está en la página.
+    sinCargar: enCero.slice(0, 8),
+    totalSinCargar: enCero.length,
+  };
 }

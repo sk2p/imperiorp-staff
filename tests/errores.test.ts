@@ -142,9 +142,9 @@ describe("errores pasajeros de la base", () => {
 
   it("reconoce los mensajes típicos de pg cuando no hay código", () => {
     expect(isTransientDatabaseError(new Error("Connection terminated unexpectedly"))).toBe(true);
-    expect(
-      isTransientDatabaseError(new Error("timeout exceeded when trying to connect")),
-    ).toBe(true);
+    expect(isTransientDatabaseError(new Error("timeout exceeded when trying to connect"))).toBe(
+      true,
+    );
   });
 
   it("NO confunde un error de verdad con uno pasajero", () => {

@@ -15,7 +15,7 @@ import { formatMoney } from "@/domain/money";
 import { formatMinutes } from "@/domain/time";
 import { COLOR, GROUP_COLOR } from "./config";
 import { emoji, emojiBoton } from "./emojis";
-import type { ActiveShift, CloseResult, DailyLine } from "@/server/shifts";
+import type { ActiveShift, CloseResult, DailyLine, PeriodOverview } from "@/server/shifts";
 
 /**
  * IMPERIO RP — Las pantallas del bot.
@@ -45,6 +45,12 @@ function fila(
   ...botones: readonly ButtonBuilder[]
 ): ActionRowBuilder<MessageActionRowComponentBuilder> {
   return new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(...botones);
+}
+
+/** De "2026-09-12" a "12/09/2026", que es como se leen las fechas acá. */
+function fechaLegible(iso: string): string {
+  const [anio, mes, dia] = iso.split("-");
+  return dia + "/" + mes + "/" + anio;
 }
 
 /** Etiqueta del staff como se ve en los registros: `[ADM++] Pit`. */
@@ -295,8 +301,7 @@ export function reporteDiario(input: {
   readonly color: number;
   readonly global?: boolean;
 }) {
-  const [anio, mes, dia] = input.fecha.split("-");
-  const legible = dia + "/" + mes + "/" + anio;
+  const legible = fechaLegible(input.fecha);
 
   const contenedor = new ContainerBuilder()
     .setAccentColor(input.color)
@@ -363,6 +368,133 @@ function partirEnBloques(lineas: readonly string[], maximo: number): string[] {
 
   if (actual.length > 0) bloques.push(actual);
   return bloques;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Estado del período                                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Cómo viene el período, sin abrir la página.
+ *
+ * Contesta las tres preguntas que se hacen mirando la planilla: cuánto se
+ * acumuló, de dónde salen esas horas, y quién todavía no cargó nada. Lo último
+ * es lo que más se usa: es la lista de a quién hay que ir a buscar antes de que
+ * el período cierre.
+ *
+ * La barra de reparto se dibuja con bloques de texto porque Discord no deja
+ * meter una imagen sin subir un archivo. Veinte bloques alcanzan para ver de un
+ * vistazo si el peso de las horas está en High o en Low.
+ *
+ * Los números salen de la misma consulta que usa la pantalla de períodos. Que
+ * el bot y la web cuenten distinto sería peor que no tener bot: la primera vez
+ * que no coinciden, nadie vuelve a creerle a ninguno de los dos.
+ */
+export function estadoPeriodo(datos: PeriodOverview) {
+  const contenedor = new ContainerBuilder()
+    .setAccentColor(COLOR.imperial)
+    .addTextDisplayComponents(
+      texto(
+        "## " +
+          emoji("CALENDARIO") +
+          " Período " +
+          fechaLegible(datos.startDate) +
+          " → " +
+          fechaLegible(datos.endDate) +
+          "\n" +
+          emoji("RELOJ") +
+          " `" +
+          formatMinutes(datos.totalMinutes) +
+          "` acumuladas · " +
+          emoji("DINERO") +
+          " **" +
+          formatMoney(datos.totalAmount) +
+          "** generados",
+      ),
+    )
+    .addSeparatorComponents(separador());
+
+  if (datos.totalMinutes <= 0) {
+    return contenedor.addTextDisplayComponents(
+      texto(
+        "Todavía no hay ni una hora cargada en este período.\n-# Los **" +
+          datos.memberCount +
+          "** miembros ya están en la planilla, esperando el primer fichaje.",
+      ),
+    );
+  }
+
+  const reparto = datos.groups.map((grupo) => {
+    const porcion = grupo.minutes / datos.totalMinutes;
+    // Al menos un bloque lleno: un grupo con pocas horas igual tiene que verse.
+    const llenos = Math.max(1, Math.min(20, Math.round(porcion * 20)));
+
+    return (
+      "**" +
+      grupo.label +
+      "** · `" +
+      formatMinutes(grupo.minutes) +
+      "` · " +
+      formatMoney(grupo.amount) +
+      "\n`" +
+      "█".repeat(llenos) +
+      "░".repeat(20 - llenos) +
+      "` " +
+      Math.round(porcion * 100) +
+      "% · " +
+      grupo.members +
+      (grupo.members === 1 ? " persona" : " personas")
+    );
+  });
+
+  contenedor.addTextDisplayComponents(texto(reparto.join("\n\n")));
+
+  if (datos.top.length > 0) {
+    const puestos = ["🥇", "🥈", "🥉"];
+
+    contenedor
+      .addSeparatorComponents(separador())
+      .addTextDisplayComponents(
+        texto(
+          "**Más horas**\n" +
+            datos.top
+              .map(
+                (persona, indice) =>
+                  (puestos[indice] ?? "·") +
+                  " " +
+                  etiqueta(persona.rank, persona.name) +
+                  " · `" +
+                  formatMinutes(persona.minutes) +
+                  "`",
+              )
+              .join("\n"),
+        ),
+      );
+  }
+
+  contenedor.addSeparatorComponents(separador());
+
+  if (datos.totalSinCargar === 0) {
+    contenedor.addTextDisplayComponents(
+      texto(emoji("EXITO") + " Los **" + datos.memberCount + "** cargaron horas en este período."),
+    );
+  } else {
+    const restantes = datos.totalSinCargar - datos.sinCargar.length;
+
+    contenedor.addTextDisplayComponents(
+      texto(
+        "**Sin cargar todavía** · " +
+          datos.totalSinCargar +
+          " de " +
+          datos.memberCount +
+          "\n" +
+          datos.sinCargar.map((persona) => "· " + etiqueta(persona.rank, persona.name)).join("\n") +
+          (restantes > 0 ? "\n-# y " + restantes + " más." : ""),
+      ),
+    );
+  }
+
+  return contenedor;
 }
 
 /* -------------------------------------------------------------------------- */

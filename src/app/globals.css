@@ -2200,11 +2200,16 @@ select:focus {
 }
 
 .rodillo-pista {
-  display: inline-flex;
-  /* Una cifra larga en una tarjeta angosta se parte antes que desbordarla. */
-  flex-wrap: wrap;
+  /* Inline y no flex: el renglón se corta donde lo cortaría un texto normal. */
+  display: inline;
   perspective: 320px;
   perspective-origin: 50% 40%;
+}
+
+/* Adentro de una palabra no hay dónde cortar: una cifra nunca queda partida. */
+.rodillo-palabra {
+  display: inline-flex;
+  white-space: pre;
 }
 
 .rodillo-cifra {

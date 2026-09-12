@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { Fragment, type CSSProperties } from "react";
 
 /**
  * Los números caen en su lugar, como el rodillo de una caja registradora.
@@ -23,23 +23,42 @@ export function Rodillo({
   readonly className?: string;
   readonly paso?: number;
 }) {
-  const caracteres = [...texto];
+  /**
+   * Se agrupa por palabras y no carácter por carácter suelto.
+   *
+   * Si cada letra fuera su propia caja independiente, el navegador podría
+   * cortar el renglón en cualquier lado: "$818" arriba y "200.000" abajo, o
+   * peor, "18/0" y "9". Agrupadas, adentro de una palabra no hay dónde
+   * cortar, y entre palabras queda el espacio de siempre. Se parte donde se
+   * partiría cualquier texto.
+   */
+  const palabras = texto.split(" ");
+  let posicion = 0;
 
   return (
     <span className={"rodillo " + (className ?? "")}>
-      {/* El texto completo para quien lee con voz; los trozos animados quedan
+      {/* El texto entero para quien lee con voz; los trozos animados quedan
           ocultos a la accesibilidad para que no se deletree cifra por cifra. */}
       <span className="sr-only">{texto}</span>
 
       <span aria-hidden className="rodillo-pista">
-        {caracteres.map((caracter, indice) => (
-          <span
-            key={indice}
-            className="rodillo-cifra"
-            style={{ animationDelay: indice * paso + "ms" } as CSSProperties}
-          >
-            {caracter === " " ? "\u00a0" : caracter}
-          </span>
+        {palabras.map((palabra, indicePalabra) => (
+          <Fragment key={indicePalabra}>
+            {/* El espacio va suelto, fuera de la palabra: ahí y sólo ahí puede
+                cortar el renglón. */}
+            {indicePalabra > 0 ? " " : null}
+            <span className="rodillo-palabra">
+              {[...palabra].map((caracter, indice) => (
+                <span
+                  key={indice}
+                  className="rodillo-cifra"
+                  style={{ animationDelay: posicion++ * paso + "ms" } as CSSProperties}
+                >
+                  {caracter}
+                </span>
+              ))}
+            </span>
+          </Fragment>
         ))}
       </span>
     </span>

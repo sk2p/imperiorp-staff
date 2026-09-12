@@ -36,6 +36,7 @@ import {
   linkDiscordAccount,
   listActiveShifts,
   listUnlinkedMembers,
+  periodOverview,
   periodSummary,
   startShift,
   unlinkDiscordAccount,
@@ -50,6 +51,7 @@ import {
   avisoEntrada,
   avisoSalida,
   error as errorUi,
+  estadoPeriodo,
   etiqueta,
   sinPermiso,
   listaActivos,
@@ -614,6 +616,9 @@ const comandos = [
   new SlashCommandBuilder()
     .setName("activos")
     .setDescription("Muestra quién está fichado en este momento"),
+  new SlashCommandBuilder()
+    .setName("periodo")
+    .setDescription("Cómo viene el período: horas por categoría y quién no cargó nada"),
 ].map((c) => c.toJSON());
 
 async function manejarComando(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -677,6 +682,31 @@ async function manejarComando(interaction: ChatInputCommandInteraction): Promise
         "Este comando es de **ADM** para arriba, o de quien administre el servidor de Discord.",
       ),
     );
+    return;
+  }
+
+  /**
+   * El estado del período es de ADM para arriba por lo mismo que `/horas`: el
+   * listado de quién no cargó nada, cruzado con la plata generada, es
+   * información de liquidación, no de vestuario.
+   */
+  if (interaction.commandName === "periodo") {
+    // Ya viene diferida del despachador: volver a diferirla acá tiraría.
+    const datos = await periodOverview();
+
+    if (!datos) {
+      await responder(
+        interaction,
+        errorUi(
+          "No hay ningún período abierto." +
+            " Sin período abierto las horas de hoy no tienen dónde anotarse.\n\n" +
+            "Creá uno desde la página, en **Períodos → Nuevo período**.",
+        ),
+      );
+      return;
+    }
+
+    await responder(interaction, estadoPeriodo(datos));
     return;
   }
 
