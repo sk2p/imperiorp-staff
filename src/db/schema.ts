@@ -569,15 +569,6 @@ export const securityEvents = pgTable(
     /** info | warning | critical */
     severity: varchar("severity", { length: 12 }).notNull().default("info"),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
-
-    /**
-     * Identificador de Discord, para que el bot sepa quién fichó.
-     *
-     * Es el número, no el nombre de usuario: los nombres se cambian y el
-     * número no, así que vincular por nombre se rompería el día que alguien se
-     * renombre. `discordTag` queda como dato de contacto, esto es el vínculo.
-     */
-    discordUserId: varchar("discord_user_id", { length: 20 }),
     username: varchar("username", { length: 32 }),
     ip: varchar("ip", { length: 45 }),
     userAgent: text("user_agent"),
