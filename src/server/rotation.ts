@@ -138,7 +138,7 @@ async function closePeriod(tx: Tx, weekId: string) {
   const [totals] = await tx
     .select({
       totalMinutes: sql<number>`coalesce(sum(${weeklyStaffRecords.totalMinutes}), 0)::int`,
-      totalAmount: sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`,
+      totalAmount: sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`.mapWith(Number),
       memberCount: sql<number>`count(*)::int`,
     })
     .from(weeklyStaffRecords)

@@ -17,6 +17,7 @@ import {
   notFound,
 } from "@/lib/core/errors";
 import { formatMoney } from "@/domain/money";
+import { GROUP_LIST, groupForCategory, type StaffGroup } from "@/domain/groups";
 import {
   buildPeriodCode,
   formatPeriodLabel,
@@ -138,23 +139,48 @@ export interface WeekListItem {
 /**
  * Totales por período. Para los cerrados se leen los valores congelados; para
  * los abiertos se agregan en vivo.
+ *
+ * El período de afuera se nombra a mano como `"weeks"."id"` y no interpolando
+ * la columna. Cuando la consulta tiene una sola tabla, el ORM escribe las
+ * columnas sin calificar —`"id"` pelado—, y adentro de estas subconsultas
+ * `"id"` deja de significar lo que parece: `weekly_staff_records` y `payments`
+ * tienen su propia columna `id`, y el nombre suelto se resuelve contra la tabla
+ * de adentro. `where w.week_id = "id"` termina comparando el período contra el
+ * identificador de la propia fila, no encuentra nunca nada, y todos los totales
+ * dan cero sin que la base se queje: es SQL perfectamente válido.
+ *
+ * Escribirlo calificado corta el problema de raíz, y el alias `wsr` está para
+ * que nadie lo vuelva a acortar a `w` y se repita la historia.
  */
+const PERIODO = sql.raw('"weeks"."id"');
+
+/**
+ * `::bigint` vuelve de PostgreSQL como texto, no como número: el rango de un
+ * bigint no entra en un `number` de JavaScript y el driver prefiere no perder
+ * dígitos en silencio. Sin convertirlo, sumar importes concatena cadenas —
+ * "0" + "818200000" — y el total sale disparatado. Los importes de acá son
+ * pesos del servidor de rol, muy lejos del límite seguro de JavaScript.
+ */
+
 const weekTotalsSelect = {
   totalMinutes: sql<number>`coalesce(${weeks.frozenTotalMinutes}, (
-    select coalesce(sum(w.total_minutes), 0)::int from weekly_staff_records w where w.week_id = ${weeks.id}
+    select coalesce(sum(wsr.total_minutes), 0)::int
+      from weekly_staff_records wsr where wsr.week_id = ${PERIODO}
   ))`,
   totalAmount: sql<number>`coalesce(${weeks.frozenTotalAmount}, (
-    select coalesce(sum(w.calculated_amount), 0)::bigint from weekly_staff_records w where w.week_id = ${weeks.id}
-  ))::bigint`,
+    select coalesce(sum(wsr.calculated_amount), 0)::bigint
+      from weekly_staff_records wsr where wsr.week_id = ${PERIODO}
+  ))::bigint`.mapWith(Number),
   memberCount: sql<number>`coalesce(${weeks.frozenMemberCount}, (
-    select count(*)::int from weekly_staff_records w where w.week_id = ${weeks.id}
+    select count(*)::int from weekly_staff_records wsr where wsr.week_id = ${PERIODO}
   ))`,
   paidCount: sql<number>`(
-    select count(*)::int from payments p where p.week_id = ${weeks.id} and p.voided_at is null
+    select count(*)::int from payments pg where pg.week_id = ${PERIODO} and pg.voided_at is null
   )`,
   paidAmount: sql<number>`(
-    select coalesce(sum(p.amount), 0)::bigint from payments p where p.week_id = ${weeks.id} and p.voided_at is null
-  )::bigint`,
+    select coalesce(sum(pg.amount), 0)::bigint
+      from payments pg where pg.week_id = ${PERIODO} and pg.voided_at is null
+  )::bigint`.mapWith(Number),
 } as const;
 export async function listWeeks(filters: WeekFilters): Promise<Paginated<WeekListItem>> {
   const conditions: SQL[] = [];
@@ -631,7 +657,10 @@ export async function closeWeek(input: CloseWeekInput, actor: ActorContext): Pro
     const [totals] = await tx
       .select({
         totalMinutes: sql<number>`coalesce(sum(${weeklyStaffRecords.totalMinutes}), 0)::int`,
-        totalAmount: sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`,
+        totalAmount:
+          sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`.mapWith(
+            Number,
+          ),
         memberCount: sql<number>`count(*)::int`,
       })
       .from(weeklyStaffRecords)
@@ -778,4 +807,137 @@ export async function countWeeks(
     })
     .from(weeks);
   return { open: row?.open ?? 0, closed: row?.closed ?? 0 };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Qué hay adentro de un período                                              */
+/* -------------------------------------------------------------------------- */
+/**
+ * La lista de períodos mostraba un total de horas y nada más. Un total no dice
+ * nada útil por sí solo: 500 horas pueden ser cuarenta personas trabajando
+ * parejo o tres personas cargando de más. Y con dos períodos abiertos a la vez
+ * —cosa que pasa el día que se abre el nuevo antes de cerrar el viejo— el
+ * total del que no es "el activo" queda escondido en una fila.
+ *
+ * Esto abre cada período: cuánto puso cada categoría, cuánta gente de las que
+ * figuran cargó horas de verdad, y quiénes son los tres que más sumaron.
+ *
+ * Se pide una sola vez para TODOS los períodos de la página, no uno por fila:
+ * dos consultas fijas en lugar de veinte.
+ */
+export interface WeekGroupSlice {
+  readonly group: StaffGroup;
+  readonly label: string;
+  readonly minutes: number;
+  readonly amount: number;
+  readonly members: number;
+}
+
+export interface WeekBreakdown {
+  readonly membersWithHours: number;
+  readonly totalMinutes: number;
+  readonly groups: readonly WeekGroupSlice[];
+  readonly top: readonly {
+    readonly name: string;
+    readonly rank: string;
+    readonly minutes: number;
+  }[];
+}
+
+export async function weekBreakdowns(
+  weekIds: readonly string[],
+): Promise<ReadonlyMap<string, WeekBreakdown>> {
+  const mapa = new Map<string, WeekBreakdown>();
+  if (weekIds.length === 0) return mapa;
+
+  const ids = sql.join(
+    weekIds.map((id) => sql`${id}::uuid`),
+    sql`, `,
+  );
+
+  const [porCategoria, mejores] = await Promise.all([
+    db.execute<{
+      week_id: string;
+      category_snapshot: string;
+      minutes: number;
+      amount: string | number;
+      members: number;
+    }>(sql`
+      select week_id, category_snapshot,
+             sum(total_minutes)::int        as minutes,
+             sum(calculated_amount)::bigint as amount,
+             count(*)::int                  as members
+        from weekly_staff_records
+       where week_id in (${ids}) and total_minutes > 0
+       group by week_id, category_snapshot
+    `),
+    db.execute<{
+      week_id: string;
+      staff_name_snapshot: string;
+      rank_snapshot: string;
+      total_minutes: number;
+    }>(sql`
+      select week_id, staff_name_snapshot, rank_snapshot, total_minutes
+        from (
+          select week_id, staff_name_snapshot, rank_snapshot, total_minutes,
+                 row_number() over (partition by week_id order by total_minutes desc) as puesto
+            from weekly_staff_records
+           where week_id in (${ids}) and total_minutes > 0
+        ) ranked
+       where puesto <= 3
+       order by week_id, total_minutes desc
+    `),
+  ]);
+
+  /** Acumulador por período; las categorías se pliegan a los tres grupos. */
+  const crudo = new Map<
+    string,
+    {
+      grupos: Map<StaffGroup, { minutes: number; amount: number; members: number }>;
+      miembros: number;
+    }
+  >();
+
+  for (const fila of porCategoria.rows ?? []) {
+    const entrada = crudo.get(fila.week_id) ?? { grupos: new Map(), miembros: 0 };
+    const grupo = groupForCategory(fila.category_snapshot);
+    const previo = entrada.grupos.get(grupo) ?? { minutes: 0, amount: 0, members: 0 };
+
+    entrada.grupos.set(grupo, {
+      minutes: previo.minutes + Number(fila.minutes),
+      amount: previo.amount + Number(fila.amount),
+      members: previo.members + Number(fila.members),
+    });
+    entrada.miembros += Number(fila.members);
+    crudo.set(fila.week_id, entrada);
+  }
+
+  const topes = new Map<string, { name: string; rank: string; minutes: number }[]>();
+  for (const fila of mejores.rows ?? []) {
+    const lista = topes.get(fila.week_id) ?? [];
+    lista.push({
+      name: fila.staff_name_snapshot,
+      rank: fila.rank_snapshot,
+      minutes: Number(fila.total_minutes),
+    });
+    topes.set(fila.week_id, lista);
+  }
+
+  for (const [weekId, entrada] of crudo) {
+    // Se listan en orden de jerarquía, no en el que los devolvió la base.
+    const groups = GROUP_LIST.flatMap((definicion) => {
+      const dato = entrada.grupos.get(definicion.group);
+      if (!dato || dato.minutes <= 0) return [];
+      return [{ group: definicion.group, label: definicion.label, ...dato }];
+    });
+
+    mapa.set(weekId, {
+      membersWithHours: entrada.miembros,
+      totalMinutes: groups.reduce((suma, grupo) => suma + grupo.minutes, 0),
+      groups,
+      top: topes.get(weekId) ?? [],
+    });
+  }
+
+  return mapa;
 }

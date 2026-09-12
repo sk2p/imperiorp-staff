@@ -28,13 +28,16 @@ export async function getGlobalStats(): Promise<GlobalStats> {
   const [records] = await db
     .select({
       totalMinutes: sql<number>`coalesce(sum(${weeklyStaffRecords.totalMinutes}), 0)::int`,
-      totalGenerated: sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`,
+      totalGenerated:
+        sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`.mapWith(
+          Number,
+        ),
       membersWithHours: sql<number>`count(*) filter (where ${weeklyStaffRecords.totalMinutes} > 0)::int`,
     })
     .from(weeklyStaffRecords);
   const [paid] = await db
     .select({
-      total: sql<number>`coalesce(sum(${payments.amount}), 0)::bigint`,
+      total: sql<number>`coalesce(sum(${payments.amount}), 0)::bigint`.mapWith(Number),
       count: sql<number>`count(*)::int`,
     })
     .from(payments)
@@ -73,7 +76,9 @@ export async function getGlobalStats(): Promise<GlobalStats> {
 async function getClosedGeneratedTotal(): Promise<number> {
   const [row] = await db
     .select({
-      total: sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`,
+      total: sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`.mapWith(
+        Number,
+      ),
     })
     .from(weeklyStaffRecords)
     .innerJoin(weeks, eq(weeklyStaffRecords.weekId, weeks.id))
@@ -106,12 +111,23 @@ export async function getWeekSeries(limit = 16): Promise<WeekSeriesPoint[]> {
       endDate: weeks.endDate,
       status: weeks.status,
       totalMinutes: sql<number>`coalesce(sum(${weeklyStaffRecords.totalMinutes}), 0)::int`,
-      totalAmount: sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`,
+      totalAmount:
+        sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`.mapWith(
+          Number,
+        ),
       memberCount: sql<number>`count(${weeklyStaffRecords.id})::int`,
+      /**
+       * El período se nombra calificado a propósito. `payments` tiene su propia
+       * columna `id`, así que un `"id"` sin tabla adelante se resolvería contra
+       * la tabla de adentro y la subconsulta no encontraría nunca nada —
+       * devolvería cero sin error. Acá el ORM lo califica porque la consulta
+       * tiene join, pero eso es una casualidad de esta consulta, no una
+       * garantía.
+       */
       paidAmount: sql<number>`coalesce((
-        select sum(p.amount) from payments p
-        where p.week_id = ${weeks.id} and p.voided_at is null
-      ), 0)::bigint`,
+        select sum(pg.amount) from payments pg
+        where pg.week_id = "weeks"."id" and pg.voided_at is null
+      ), 0)::bigint`.mapWith(Number),
     })
     .from(weeks)
     .leftJoin(weeklyStaffRecords, eq(weeklyStaffRecords.weekId, weeks.id))
@@ -137,7 +153,10 @@ export async function getMonthSeries(months = 12): Promise<MonthSeriesPoint[]> {
     .select({
       month: sql<string>`to_char(${weeks.startDate}, 'YYYY-MM')`,
       totalMinutes: sql<number>`coalesce(sum(${weeklyStaffRecords.totalMinutes}), 0)::int`,
-      totalAmount: sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`,
+      totalAmount:
+        sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`.mapWith(
+          Number,
+        ),
       weekCount: sql<number>`count(distinct ${weeks.id})::int`,
     })
     .from(weeks)
@@ -164,7 +183,10 @@ export async function getRankDistribution(weekId?: string): Promise<RankDistribu
       category: weeklyStaffRecords.categorySnapshot,
       memberCount: sql<number>`count(distinct ${weeklyStaffRecords.staffMemberId})::int`,
       totalMinutes: sql<number>`coalesce(sum(${weeklyStaffRecords.totalMinutes}), 0)::int`,
-      totalAmount: sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`,
+      totalAmount:
+        sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`.mapWith(
+          Number,
+        ),
     })
     .from(weeklyStaffRecords)
     .where(weekId ? eq(weeklyStaffRecords.weekId, weekId) : undefined)
@@ -189,7 +211,10 @@ export async function getCategoryDistribution(weekId?: string): Promise<Category
     .select({
       category: weeklyStaffRecords.categorySnapshot,
       totalMinutes: sql<number>`coalesce(sum(${weeklyStaffRecords.totalMinutes}), 0)::int`,
-      totalAmount: sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`,
+      totalAmount:
+        sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`.mapWith(
+          Number,
+        ),
       memberCount: sql<number>`count(distinct ${weeklyStaffRecords.staffMemberId})::int`,
     })
     .from(weeklyStaffRecords)
@@ -219,7 +244,10 @@ export async function getTopMembers(limit = 10, weekId?: string): Promise<TopMem
       name: sql<string>`max(${weeklyStaffRecords.staffNameSnapshot})`,
       rank: sql<string>`max(${weeklyStaffRecords.rankSnapshot})`,
       totalMinutes: sql<number>`coalesce(sum(${weeklyStaffRecords.totalMinutes}), 0)::int`,
-      totalAmount: sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`,
+      totalAmount:
+        sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`.mapWith(
+          Number,
+        ),
       weekCount: sql<number>`count(distinct ${weeklyStaffRecords.weekId})::int`,
     })
     .from(weeklyStaffRecords)
@@ -281,7 +309,10 @@ export async function comparePeriods(weekId: string): Promise<PeriodComparison> 
     const [row] = await db
       .select({
         minutes: sql<number>`coalesce(sum(${weeklyStaffRecords.totalMinutes}), 0)::int`,
-        amount: sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`,
+        amount:
+          sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`.mapWith(
+            Number,
+          ),
       })
       .from(weeklyStaffRecords)
       .where(eq(weeklyStaffRecords.weekId, id));

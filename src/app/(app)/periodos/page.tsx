@@ -17,10 +17,11 @@ import { formatPeriodLabel, periodLengthInDays } from "@/domain/periods";
 import { PERMISSIONS } from "@/domain/permissions";
 import { formatMinutes } from "@/domain/time";
 import { requirePermission } from "@/lib/auth/context";
-import { listWeeks, preflightClose, suggestNextPeriodRange } from "@/server/weeks";
+import { listWeeks, preflightClose, suggestNextPeriodRange, weekBreakdowns } from "@/server/weeks";
 import { weekFiltersSchema } from "@/validation/weeks";
-import { PeriodProgress } from "./period-progress";
-import { ClosePeriodDialog, CreatePeriodDialog, ReopenPeriodDialog } from "./period-dialogs";
+import { GroupBar } from "./period-breakdown";
+import { OpenPeriodCard } from "./open-period-card";
+import { CreatePeriodDialog, ReopenPeriodDialog } from "./period-dialogs";
 
 export const metadata: Metadata = { title: "Períodos" };
 export const dynamic = "force-dynamic";
@@ -36,9 +37,29 @@ export default async function PeriodsPage({
 
   const [result, suggestion] = await Promise.all([listWeeks(filters), suggestNextPeriodRange()]);
 
-  const openWeek = result.items.find((week) => week.status === "open");
-  const preflight =
-    openWeek && can(PERMISSIONS.WEEKS_CLOSE) ? await preflightClose(openWeek.id) : null;
+  const openWeeks = result.items.filter((week) => week.status === "open");
+  const openWeek = openWeeks[0];
+  /**
+   * El día que se abre el período nuevo sin haber cerrado el viejo quedan dos
+   * abiertos. Se muestran todos: el primero es el activo —donde caen las horas
+   * de hoy— y los demás siguen teniendo sus horas y su plata adentro.
+   */
+  /**
+   * El chequeo previo al cierre se pide para TODOS los períodos abiertos, no
+   * sólo para el primero: cada uno se cierra por su cuenta y cada uno tiene sus
+   * propias advertencias.
+   */
+  const preflights = can(PERMISSIONS.WEEKS_CLOSE)
+    ? new Map(
+        await Promise.all(
+          openWeeks.map(
+            async (week) => [week.id, await preflightClose(week.id)] as const,
+          ),
+        ),
+      )
+    : new Map<string, Awaited<ReturnType<typeof preflightClose>>>();
+
+  const breakdowns = await weekBreakdowns(result.items.map((week) => week.id));
 
   const totalGenerated = result.items.reduce((sum, week) => sum + week.totalAmount, 0);
   const totalPaid = result.items.reduce((sum, week) => sum + week.paidAmount, 0);
@@ -59,85 +80,19 @@ export default async function PeriodsPage({
         }
       />
 
-      {openWeek ? (
-        <Card className="border-imperial-500/25">
-          <CardHeader
-            title={"Período activo · " + formatPeriodLabel(openWeek.startDate, openWeek.endDate)}
-            description={
-              periodLengthInDays(openWeek.startDate, openWeek.endDate) +
-              " días · " +
-              openWeek.memberCount +
-              " miembros"
-            }
-            action={
-              preflight && can(PERMISSIONS.WEEKS_CLOSE) ? (
-                <ClosePeriodDialog
-                  summary={{
-                    weekId: openWeek.id,
-                    version: openWeek.version,
-                    startDate: openWeek.startDate,
-                    endDate: openWeek.endDate,
-                    totalMinutes: preflight.totalMinutes,
-                    totalAmount: preflight.totalAmount,
-                    memberCount: preflight.memberCount,
-                    membersWithHours: preflight.membersWithHours,
-                    warnings: preflight.warnings,
-                  }}
-                />
-              ) : null
-            }
-          />
-          <div className="grid grid-cols-2 gap-4 p-4 sm:grid-cols-4">
-            <div>
-              <p className="overline">Horas acumuladas</p>
-              <p className="tnum text-chalk-50 mt-1 text-lg font-bold">
-                {formatMinutes(openWeek.totalMinutes)}
-              </p>
-            </div>
-            <div>
-              <p className="overline">Importe generado</p>
-              <p className="tnum text-imperial-400 mt-1 text-lg font-bold">
-                {formatMoney(openWeek.totalAmount)}
-              </p>
-            </div>
-            <div>
-              <p className="overline">Miembros con horas</p>
-              <p className="tnum text-chalk-50 mt-1 text-lg font-bold">
-                {preflight ? preflight.membersWithHours : "—"} / {openWeek.memberCount}
-              </p>
-            </div>
-            <div>
-              <p className="overline">Advertencias</p>
-              <p
-                className={
-                  "tnum mt-1 text-lg font-bold " +
-                  (preflight && preflight.warnings.length > 0 ? "text-amber-400" : "text-jade-400")
-                }
-              >
-                {preflight ? preflight.warnings.length : "—"}
-              </p>
-            </div>
-          </div>
-
-          <PeriodProgress startDate={openWeek.startDate} endDate={openWeek.endDate} />
-
-          {preflight && preflight.warnings.length > 0 ? (
-            <div className="border-t border-white/[0.07] px-4 py-3">
-              <Callout tone="warning" title="Revisá antes de cerrar">
-                <ul className="mt-1 flex flex-col gap-1">
-                  {preflight.warnings.slice(0, 4).map((warning, index) => (
-                    <li key={index}>· {warning.message}</li>
-                  ))}
-                  {preflight.warnings.length > 4 ? (
-                    <li className="text-chalk-500">
-                      y {preflight.warnings.length - 4} advertencia(s) más.
-                    </li>
-                  ) : null}
-                </ul>
-              </Callout>
-            </div>
-          ) : null}
-        </Card>
+      {openWeeks.length > 0 ? (
+        <div className="flex flex-col gap-4">
+          {openWeeks.map((week, indice) => (
+            <OpenPeriodCard
+              key={week.id}
+              week={week}
+              preflight={preflights.get(week.id) ?? null}
+              breakdown={breakdowns.get(week.id)}
+              activo={indice === 0}
+              puedeCerrar={can(PERMISSIONS.WEEKS_CLOSE)}
+            />
+          ))}
+        </div>
       ) : (
         <Callout tone="warning" title="No hay ningún período abierto">
           Sin un período abierto no se pueden registrar horas nuevas.
@@ -202,6 +157,7 @@ export default async function PeriodsPage({
                 <tbody className="stagger">
                   {result.items.map((week) => {
                     const pending = Math.max(0, week.totalAmount - week.paidAmount);
+                    const desglose = breakdowns.get(week.id);
                     return (
                       <tr key={week.id}>
                         <td>
@@ -228,8 +184,18 @@ export default async function PeriodsPage({
                         <td className="tnum text-chalk-400 text-right text-xs">
                           {week.memberCount}
                         </td>
-                        <td className="tnum text-right font-semibold">
-                          {formatMinutes(week.totalMinutes)}
+                        <td className="text-right">
+                          <span className="tnum font-semibold">
+                            {formatMinutes(week.totalMinutes)}
+                          </span>
+                          {desglose ? (
+                            <>
+                              <GroupBar breakdown={desglose} className="ml-auto mt-1 w-24" />
+                              <span className="text-chalk-600 mt-0.5 block text-[0.625rem]">
+                                {desglose.membersWithHours} de {week.memberCount} cargaron
+                              </span>
+                            </>
+                          ) : null}
                         </td>
                         <td className="tnum text-chalk-100 text-right font-semibold">
                           {formatMoney(week.totalAmount)}
