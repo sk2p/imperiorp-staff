@@ -16,6 +16,7 @@ import {
   isUniqueViolation,
   notFound,
 } from "@/lib/core/errors";
+import { localDate } from "@/domain/clock";
 import { formatMoney } from "@/domain/money";
 import { GROUP_LIST, groupForCategory, type StaffGroup } from "@/domain/groups";
 import {
@@ -66,6 +67,53 @@ import { appendAuditLog } from "./audit";
  * filas congeladas no se tocan.
  */
 export async function recalculateWeekRecords(tx: Transaction, weekId: string): Promise<void> {
+  /**
+   * ¿Este período es el de ahora, o uno anterior?
+   *
+   * De eso depende si el nombre, el rango y la tarifa de cada ficha se vuelven
+   * a copiar desde el staff de hoy. En el período en curso sí: un ascenso de
+   * hoy rige para lo que se está liquidando hoy. En uno anterior, jamás.
+   */
+  const [semana] = await tx
+    .select({ startDate: weeks.startDate, endDate: weeks.endDate })
+    .from(weeks)
+    .where(eq(weeks.id, weekId))
+    .limit(1);
+
+  if (!semana) throw notFound("El período");
+
+  const hoy = localDate();
+  const esElDeAhora = semana.startDate <= hoy && hoy <= semana.endDate;
+
+  /**
+   * Al tocar un período anterior, la identidad de cada fila no se toca.
+   *
+   * El rango y la tarifa quedaron grabados en la fila cuando ese período era el
+   * actual: son el rango y la tarifa que esa persona TENÍA entonces. Volver a
+   * copiarlos del staff de hoy reescribe la historia — alguien que era MOD++ en
+   * septiembre y hoy es ADM+ aparecía como ADM+ en septiembre, y sus horas de
+   * septiembre pasaban a valer la tarifa de ADM+. Basta con corregir una hora
+   * del mes pasado para cambiarle a alguien lo que cobró.
+   *
+   * Sólo se recalculan los minutos y el importe, y el importe con la tarifa
+   * GUARDADA en la fila, no con la de la tabla de tarifas.
+   */
+  const alActualizar = esElDeAhora
+    ? sql`
+      staff_name_snapshot   = excluded.staff_name_snapshot,
+      rank_snapshot         = excluded.rank_snapshot,
+      category_snapshot     = excluded.category_snapshot,
+      hourly_rate_snapshot  = excluded.hourly_rate_snapshot,
+      total_minutes         = excluded.total_minutes,
+      calculated_amount     = excluded.calculated_amount,
+      entry_count           = excluded.entry_count`
+    : sql`
+      total_minutes         = excluded.total_minutes,
+      calculated_amount     = ((excluded.total_minutes::bigint
+                                * weekly_staff_records.hourly_rate_snapshot::bigint
+                                * 2 + 60) / 120)::bigint,
+      entry_count           = excluded.entry_count`;
+
   await tx.execute(sql`
     insert into weekly_staff_records (
       week_id, staff_member_id, staff_name_snapshot, rank_snapshot, category_snapshot,
@@ -98,13 +146,7 @@ export async function recalculateWeekRecords(tx: Transaction, weekId: string): P
          where w.week_id = ${weekId}::uuid and w.staff_member_id = s.id
        )
     on conflict (week_id, staff_member_id) do update set
-      staff_name_snapshot   = excluded.staff_name_snapshot,
-      rank_snapshot         = excluded.rank_snapshot,
-      category_snapshot     = excluded.category_snapshot,
-      hourly_rate_snapshot  = excluded.hourly_rate_snapshot,
-      total_minutes         = excluded.total_minutes,
-      calculated_amount     = excluded.calculated_amount,
-      entry_count           = excluded.entry_count,
+      ${alActualizar},
       version               = weekly_staff_records.version + 1,
       updated_at            = now()
     where weekly_staff_records.frozen_at is null
