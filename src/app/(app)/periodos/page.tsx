@@ -17,11 +17,22 @@ import { formatPeriodLabel, periodLengthInDays } from "@/domain/periods";
 import { PERMISSIONS } from "@/domain/permissions";
 import { formatMinutes } from "@/domain/time";
 import { requirePermission } from "@/lib/auth/context";
-import { listWeeks, preflightClose, suggestNextPeriodRange, weekBreakdowns } from "@/server/weeks";
+import {
+  deleteWeekPreflights,
+  listWeeks,
+  preflightClose,
+  suggestNextPeriodRange,
+  weekBreakdowns,
+} from "@/server/weeks";
 import { weekFiltersSchema } from "@/validation/weeks";
 import { GroupBar } from "./period-breakdown";
 import { OpenPeriodCard } from "./open-period-card";
-import { CreatePeriodDialog, ReopenPeriodDialog } from "./period-dialogs";
+import {
+  CreatePeriodDialog,
+  DeletePeriodDialog,
+  EditPeriodDialog,
+  ReopenPeriodDialog,
+} from "./period-dialogs";
 
 export const metadata: Metadata = { title: "Períodos" };
 export const dynamic = "force-dynamic";
@@ -57,7 +68,11 @@ export default async function PeriodsPage({
       )
     : new Map<string, Awaited<ReturnType<typeof preflightClose>>>();
 
-  const breakdowns = await weekBreakdowns(result.items.map((week) => week.id));
+  const ids = result.items.map((week) => week.id);
+  const [breakdowns, borrables] = await Promise.all([
+    weekBreakdowns(ids),
+    can(PERMISSIONS.WEEKS_DELETE) ? deleteWeekPreflights(ids) : Promise.resolve(null),
+  ]);
 
   const totalGenerated = result.items.reduce((sum, week) => sum + week.totalAmount, 0);
   const totalPaid = result.items.reduce((sum, week) => sum + week.paidAmount, 0);
@@ -156,6 +171,7 @@ export default async function PeriodsPage({
                   {result.items.map((week) => {
                     const pending = Math.max(0, week.totalAmount - week.paidAmount);
                     const desglose = breakdowns.get(week.id);
+                    const borrable = borrables?.get(week.id) ?? null;
                     return (
                       <tr key={week.id}>
                         <td>
@@ -224,6 +240,25 @@ export default async function PeriodsPage({
                             >
                               Pagos →
                             </Link>
+                            {can(PERMISSIONS.WEEKS_CREATE) ? (
+                              <EditPeriodDialog
+                                weekId={week.id}
+                                version={week.version}
+                                label={week.label}
+                                notes={week.notes}
+                                periodLabel={formatPeriodLabel(week.startDate, week.endDate)}
+                              />
+                            ) : null}
+                            {borrable ? (
+                              <DeletePeriodDialog
+                                weekId={week.id}
+                                version={week.version}
+                                label={formatPeriodLabel(week.startDate, week.endDate)}
+                                blocker={borrable.blocker}
+                                canDelete={borrable.canDelete}
+                                seededCount={borrable.emptyRecords}
+                              />
+                            ) : null}
                           </div>
                         </td>
                       </tr>

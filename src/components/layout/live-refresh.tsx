@@ -44,7 +44,16 @@ function isBusy(): boolean {
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
   if (active instanceof HTMLElement && active.isContentEditable) return true;
 
-  return document.querySelector('[role="menu"], [role="dialog"]') !== null;
+  /**
+   * Un diálogo abierto congela el refresco aunque no haya nada enfocado.
+   *
+   * `[role="dialog"]` no alcanza: el elemento `<dialog>` nativo tiene ese rol
+   * de forma implícita, y un selector de atributo sólo ve los que están
+   * escritos. Sin `dialog[open]` en la lista, el refresco de los doce segundos
+   * cerraba el diálogo en la cara de quien lo estaba leyendo, y se llevaba
+   * puesto el motivo a medio escribir.
+   */
+  return document.querySelector('[role="menu"], [role="dialog"], dialog[open]') !== null;
 }
 
 export function LiveRefresh() {

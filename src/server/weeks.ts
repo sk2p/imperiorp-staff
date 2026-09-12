@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { db, withTransaction, type Executor, type Transaction } from "@/db";
 import {
   hourEntries,
@@ -31,6 +31,7 @@ import { offsetFor, paginate, type Paginated } from "@/validation/common";
 import type {
   CloseWeekInput,
   CreateWeekInput,
+  DeleteWeekInput,
   ReopenWeekInput,
   UpdateWeekInput,
   WeekFilters,
@@ -124,6 +125,7 @@ export interface WeekListItem {
   readonly id: string;
   readonly code: string;
   readonly label: string | null;
+  readonly notes: string | null;
   readonly startDate: string;
   readonly endDate: string;
   readonly status: string;
@@ -195,6 +197,7 @@ export async function listWeeks(filters: WeekFilters): Promise<Paginated<WeekLis
         id: weeks.id,
         code: weeks.code,
         label: weeks.label,
+        notes: weeks.notes,
         startDate: weeks.startDate,
         endDate: weeks.endDate,
         status: weeks.status,
@@ -774,6 +777,277 @@ export async function reopenWeek(input: ReopenWeekInput, actor: ActorContext): P
     return reopened;
   });
 }
+/* -------------------------------------------------------------------------- */
+/* Borrado                                                                    */
+/* -------------------------------------------------------------------------- */
+/**
+ * Qué hay adentro de un período, mirado desde la pregunta "¿se puede borrar?".
+ *
+ * Borrar un período no se deshace, así que la regla es una sola y no se
+ * negocia: se borra lo que no contiene nada. El caso real es el período creado
+ * por error —fechas mal tipeadas, uno de más— y ése está siempre vacío.
+ *
+ * Un período con horas adentro no se borra desde acá aunque quien lo pida
+ * tenga todos los permisos del mundo. Esas horas son lo que cada uno va a
+ * cobrar; hacerlas desaparecer con un botón y un diálogo no es una función, es
+ * una trampa esperando al día que alguien se equivoque de fila. Para vaciarlo
+ * está la planilla, donde borrar horas se hace de a una y queda registrado.
+ *
+ * Los pagos son todavía más terminantes: aunque estén anulados, un pago es
+ * plata que se movió. Con un solo pago cargado, el período se queda.
+ */
+export interface DeletePreflight {
+  readonly canDelete: boolean;
+  /** Entradas de horas con tiempo cargado. */
+  readonly entriesWithTime: number;
+  readonly totalMinutes: number;
+  readonly membersWithHours: number;
+  /** Entradas marcadas (inactivo, justificado, anulado) aunque estén en cero. */
+  readonly markedEntries: number;
+  readonly paymentCount: number;
+  /** Cuántos de esos pagos están anulados. */
+  readonly paymentsVoided: number;
+  /** Filas de planilla sembradas en cero: no dicen nada, se van con el período. */
+  readonly emptyRecords: number;
+  /** El motivo por el que no se puede, listo para mostrar. */
+  readonly blocker: string | null;
+}
+
+export async function deleteWeekPreflight(
+  weekId: string,
+  executor: Executor = db,
+): Promise<DeletePreflight> {
+  const [entradas] = await executor
+    .select({
+      conTiempo: sql<number>`count(*) filter (where ${hourEntries.minutes} > 0 or ${hourEntries.seconds} > 0)::int`,
+      marcadas: sql<number>`count(*) filter (where ${hourEntries.status} <> 'normal' or ${hourEntries.voidedAt} is not null or ${hourEntries.reason} is not null)::int`,
+      minutos: sql<number>`coalesce(sum(${hourEntries.minutes}), 0)::int`,
+      personas: sql<number>`count(distinct ${hourEntries.staffMemberId}) filter (where ${hourEntries.minutes} > 0)::int`,
+    })
+    .from(hourEntries)
+    .where(eq(hourEntries.weekId, weekId));
+
+  const [pagos] = await executor
+    .select({
+      total: sql<number>`count(*)::int`,
+      anulados: sql<number>`count(*) filter (where ${payments.voidedAt} is not null)::int`,
+    })
+    .from(payments)
+    .where(eq(payments.weekId, weekId));
+
+  const [fichas] = await executor
+    .select({ total: sql<number>`count(*)::int` })
+    .from(weeklyStaffRecords)
+    .where(eq(weeklyStaffRecords.weekId, weekId));
+
+  return resolverPreflight({
+    conTiempo: entradas?.conTiempo ?? 0,
+    marcadas: entradas?.marcadas ?? 0,
+    minutos: entradas?.minutos ?? 0,
+    personas: entradas?.personas ?? 0,
+    paymentCount: pagos?.total ?? 0,
+    paymentsVoided: pagos?.anulados ?? 0,
+    emptyRecords: fichas?.total ?? 0,
+  });
+}
+
+/** El veredicto y su explicación, a partir de los recuentos crudos. */
+function resolverPreflight(conteos: {
+  conTiempo: number;
+  marcadas: number;
+  minutos: number;
+  personas: number;
+  paymentCount: number;
+  paymentsVoided: number;
+  emptyRecords: number;
+}): DeletePreflight {
+  /**
+   * Un pago anulado también frena el borrado, y conviene decirlo con todas las
+   * letras: la lista muestra "$0 pagado" porque lo anulado no suma, y sin esta
+   * aclaración el mensaje parecería inventado. Anular un pago no lo borra —
+   * queda el registro de que alguien cobró y después se revirtió—, y ese
+   * registro vive colgado del período.
+   */
+  const todosAnulados = conteos.paymentCount > 0 && conteos.paymentsVoided === conteos.paymentCount;
+
+  const blocker =
+    conteos.paymentCount > 0
+      ? "Tiene " +
+        conteos.paymentCount +
+        (conteos.paymentCount === 1 ? " pago registrado" : " pagos registrados") +
+        (todosAnulados
+          ? conteos.paymentCount === 1
+            ? ", anulado"
+            : ", todos anulados"
+          : conteos.paymentsVoided > 0
+            ? " (" + conteos.paymentsVoided + " anulados)"
+            : "") +
+        ". Un pago es plata que se movió, y anularlo no lo borra: el período que lo contiene se queda."
+      : conteos.conTiempo > 0
+        ? "Tiene " +
+          formatMinutes(conteos.minutos) +
+          " cargadas por " +
+          conteos.personas +
+          (conteos.personas === 1 ? " persona" : " personas") +
+          ". Para borrarlo hay que vaciarlo antes desde la planilla."
+        : conteos.marcadas > 0
+          ? "Tiene " +
+            conteos.marcadas +
+            (conteos.marcadas === 1 ? " día marcado" : " días marcados") +
+            " (inactivo, justificado, anulado o con nota). Están en cero horas, pero alguien los escribió a propósito."
+          : null;
+
+  return {
+    canDelete: blocker === null,
+    entriesWithTime: conteos.conTiempo,
+    totalMinutes: conteos.minutos,
+    membersWithHours: conteos.personas,
+    markedEntries: conteos.marcadas,
+    paymentCount: conteos.paymentCount,
+    paymentsVoided: conteos.paymentsVoided,
+    emptyRecords: conteos.emptyRecords,
+    blocker,
+  };
+}
+
+/**
+ * Lo mismo, pero para todos los períodos de la pantalla de una sola vez.
+ *
+ * La versión de arriba hace tres consultas. Multiplicadas por veinte filas son
+ * sesenta viajes a la base para pintar una lista. Acá son tres, agrupando por
+ * período, y cada fila busca su resultado en el mapa.
+ */
+export async function deleteWeekPreflights(
+  weekIds: readonly string[],
+): Promise<ReadonlyMap<string, DeletePreflight>> {
+  const mapa = new Map<string, DeletePreflight>();
+  if (weekIds.length === 0) return mapa;
+
+  const [entradas, pagos, fichas] = await Promise.all([
+    db
+      .select({
+        weekId: hourEntries.weekId,
+        conTiempo: sql<number>`count(*) filter (where ${hourEntries.minutes} > 0 or ${hourEntries.seconds} > 0)::int`,
+        marcadas: sql<number>`count(*) filter (where ${hourEntries.status} <> 'normal' or ${hourEntries.voidedAt} is not null or ${hourEntries.reason} is not null)::int`,
+        minutos: sql<number>`coalesce(sum(${hourEntries.minutes}), 0)::int`,
+        personas: sql<number>`count(distinct ${hourEntries.staffMemberId}) filter (where ${hourEntries.minutes} > 0)::int`,
+      })
+      .from(hourEntries)
+      .where(inArray(hourEntries.weekId, [...weekIds]))
+      .groupBy(hourEntries.weekId),
+    db
+      .select({
+        weekId: payments.weekId,
+        total: sql<number>`count(*)::int`,
+        anulados: sql<number>`count(*) filter (where ${payments.voidedAt} is not null)::int`,
+      })
+      .from(payments)
+      .where(inArray(payments.weekId, [...weekIds]))
+      .groupBy(payments.weekId),
+    db
+      .select({ weekId: weeklyStaffRecords.weekId, total: sql<number>`count(*)::int` })
+      .from(weeklyStaffRecords)
+      .where(inArray(weeklyStaffRecords.weekId, [...weekIds]))
+      .groupBy(weeklyStaffRecords.weekId),
+  ]);
+
+  const porPagos = new Map(pagos.map((fila) => [fila.weekId, fila]));
+  const porFichas = new Map(fichas.map((fila) => [fila.weekId, fila.total]));
+  const porEntradas = new Map(entradas.map((fila) => [fila.weekId, fila]));
+
+  for (const weekId of weekIds) {
+    const entrada = porEntradas.get(weekId);
+
+    mapa.set(
+      weekId,
+      resolverPreflight({
+        conTiempo: entrada?.conTiempo ?? 0,
+        marcadas: entrada?.marcadas ?? 0,
+        minutos: entrada?.minutos ?? 0,
+        personas: entrada?.personas ?? 0,
+        paymentCount: porPagos.get(weekId)?.total ?? 0,
+        paymentsVoided: porPagos.get(weekId)?.anulados ?? 0,
+        emptyRecords: porFichas.get(weekId) ?? 0,
+      }),
+    );
+  }
+
+  return mapa;
+}
+
+/**
+ * Borra un período vacío.
+ *
+ * Se vuelve a comprobar todo adentro de la transacción y con el período
+ * bloqueado. Lo que el navegador mandó es una foto de hace unos segundos, y en
+ * el medio alguien pudo haber cargado el domingo desde el teléfono.
+ *
+ * La auditoría se escribe ANTES del borrado y se queda con una copia de lo que
+ * había: el registro tiene que sobrevivir a la fila que describe. Por eso el
+ * `entityId` apunta a un período que después deja de existir, y el `before`
+ * guarda sus fechas y su etiqueta — sin eso, el renglón diría "borró algo" y
+ * nada más.
+ */
+export async function deleteWeek(
+  input: DeleteWeekInput,
+  actor: ActorContext,
+): Promise<{ startDate: string; endDate: string }> {
+  return withTransaction(async (tx) => {
+    const week = await lockWeek(tx, input.id);
+
+    if (week.version !== input.expectedVersion) {
+      throw concurrency("El período cambió mientras lo revisabas. Recargá y volvé a intentar.");
+    }
+
+    const revision = await deleteWeekPreflight(input.id, tx);
+    if (!revision.canDelete) {
+      throw businessRule(
+        "No se puede borrar " +
+          formatPeriodLabel(week.startDate, week.endDate) +
+          ". " +
+          (revision.blocker ?? ""),
+      );
+    }
+
+    await appendAuditLog(tx, {
+      actor,
+      action: "WEEK_DELETED",
+      entity: "weeks",
+      entityId: week.id,
+      summary:
+        "Borró el período " +
+        formatPeriodLabel(week.startDate, week.endDate) +
+        (week.label ? " (" + week.label + ")" : ""),
+      before: {
+        codigo: week.code,
+        etiqueta: week.label,
+        desde: week.startDate,
+        hasta: week.endDate,
+        estado: week.status,
+        notas: week.notes,
+        creadoEl: week.createdAt,
+      },
+      after: null,
+      reason: input.reason,
+      metadata: {
+        fichasEnCero: revision.emptyRecords,
+        entradasVacias: revision.markedEntries,
+      },
+    });
+
+    /**
+     * Las entradas en cero se van a mano porque su clave foránea es
+     * `restrict`: esa restricción existe para que nadie borre horas de rebote,
+     * y acá ya está probado que no hay ninguna hora que borrar. Las filas de
+     * planilla, en cambio, caen solas con el período.
+     */
+    await tx.delete(hourEntries).where(eq(hourEntries.weekId, input.id));
+    await tx.delete(weeks).where(eq(weeks.id, input.id));
+
+    return { startDate: week.startDate, endDate: week.endDate };
+  });
+}
+
 /* -------------------------------------------------------------------------- */
 /* Utilidades internas                                                        */
 /* -------------------------------------------------------------------------- */

@@ -79,6 +79,23 @@ export const reopenWeekSchema = z.object({
 
 export type ReopenWeekInput = z.infer<typeof reopenWeekSchema>;
 
+/**
+ * Borrar un período no se deshace. Se pide motivo y la palabra escrita, igual
+ * que para reabrir, y el servidor vuelve a verificar que esté vacío: lo que
+ * viaja en el formulario es una foto de hace unos segundos, y en el medio
+ * alguien pudo cargar horas.
+ */
+export const deleteWeekSchema = z.object({
+  id: uuidSchema,
+  expectedVersion: versionSchema,
+  reason: reasonSchema,
+  confirmation: z.literal("BORRAR", {
+    message: "Escribí BORRAR en mayúsculas para confirmar.",
+  }),
+});
+
+export type DeleteWeekInput = z.infer<typeof deleteWeekSchema>;
+
 /** Agrega un miembro a un período abierto que todavía no lo incluía. */
 export const addMemberToWeekSchema = z.object({
   weekId: uuidSchema,

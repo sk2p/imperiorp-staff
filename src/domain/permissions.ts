@@ -43,6 +43,7 @@ export const PERMISSIONS = {
   WEEKS_CREATE: "weeks.create",
   WEEKS_CLOSE: "weeks.close",
   WEEKS_REOPEN: "weeks.reopen",
+  WEEKS_DELETE: "weeks.delete",
 
   // Análisis e historial
   STATS_VIEW: "stats.view",
@@ -298,6 +299,7 @@ export const PERMISSION_GROUPS: readonly PermissionGroup[] = [
       { value: P.WEEKS_CREATE, label: "Crear períodos" },
       { value: P.WEEKS_CLOSE, label: "Cerrar períodos" },
       { value: P.WEEKS_REOPEN, label: "Reabrir períodos" },
+      { value: P.WEEKS_DELETE, label: "Borrar períodos vacíos" },
     ],
   },
   {

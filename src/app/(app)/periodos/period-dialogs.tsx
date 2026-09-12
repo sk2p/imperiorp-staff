@@ -8,7 +8,13 @@ import { Button, Callout, Field, Input, Textarea } from "@/components/ui/primiti
 import { formatMoney } from "@/domain/money";
 import { formatPeriodLabel, periodLengthInDays } from "@/domain/periods";
 import { formatMinutes } from "@/domain/time";
-import { closeWeekAction, createWeekAction, reopenWeekAction } from "@/server/actions";
+import {
+  closeWeekAction,
+  createWeekAction,
+  deleteWeekAction,
+  reopenWeekAction,
+  updateWeekAction,
+} from "@/server/actions";
 
 export function CreatePeriodDialog({
   suggestedStart,
@@ -289,6 +295,198 @@ export function ReopenPeriodDialog({
                 <SubmitButton variant="danger" pendingLabel="Reabriendo…">
                   Reabrir período
                 </SubmitButton>
+              </div>
+            </>
+          )}
+        </ActionForm>
+      )}
+    </Dialog>
+  );
+}
+
+/**
+ * Borrar un período.
+ *
+ * El botón está siempre; lo que cambia es lo que dice el diálogo. Si el
+ * período tiene algo adentro, adentro se explica qué tiene y por qué no se
+ * borra, en vez de esconder el botón y dejar a alguien buscándolo. Un botón
+ * que desaparece sin explicación se lee como que la función no existe.
+ */
+export function DeletePeriodDialog({
+  weekId,
+  version,
+  label,
+  blocker,
+  canDelete,
+  seededCount,
+}: {
+  readonly weekId: string;
+  readonly version: number;
+  readonly label: string;
+  readonly blocker: string | null;
+  readonly canDelete: boolean;
+  readonly seededCount: number;
+}) {
+  return (
+    <Dialog
+      title="Borrar el período"
+      description={label}
+      width="sm"
+      trigger={(open) => (
+        <Button size="sm" variant="ghost" onClick={open} title="Borrar el período">
+          <Icon name="trash" size={14} />
+          <span className="sr-only">Borrar</span>
+        </Button>
+      )}
+    >
+      {(close) =>
+        !canDelete ? (
+          <div className="flex flex-col gap-4">
+            <Callout tone="warning" title="Este período no está vacío">
+              {blocker}
+            </Callout>
+
+            <p className="text-chalk-500 text-xs leading-relaxed">
+              Sólo se borran los períodos que no contienen nada — el que se creó con la fecha mal
+              tipeada, o el de más. Todo lo demás se cierra o se reabre, pero no se hace
+              desaparecer: son las horas que cada uno va a cobrar.
+            </p>
+
+            <div className="flex justify-end">
+              <Button type="button" variant="ghost" onClick={close}>
+                Entendido
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <ActionForm action={deleteWeekAction} onSuccess={close} className="flex flex-col gap-4">
+            {({ fieldError }) => (
+              <>
+                <input type="hidden" name="id" value={weekId} />
+                <input type="hidden" name="expectedVersion" value={version} />
+
+                <Callout tone="danger" title="Esto no se puede deshacer">
+                  El período desaparece de la lista y de los filtros. No hay papelera ni forma de
+                  recuperarlo: habría que crearlo de nuevo.
+                  {seededCount > 0 ? (
+                    <>
+                      <br />
+                      <br />
+                      Se van con él las <strong>{seededCount}</strong> filas de planilla sembradas
+                      en cero. Ninguna tiene horas cargadas.
+                    </>
+                  ) : null}
+                </Callout>
+
+                <Field label="Motivo" name="reason" required error={fieldError("reason")}>
+                  <Textarea
+                    id="reason"
+                    name="reason"
+                    rows={3}
+                    required
+                    placeholder="Lo creé con las fechas de la semana equivocada."
+                  />
+                </Field>
+
+                <ConfirmField word="BORRAR" error={fieldError("confirmation")} />
+
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="ghost" onClick={close}>
+                    Cancelar
+                  </Button>
+                  <SubmitButton variant="danger" pendingLabel="Borrando…">
+                    Borrar período
+                  </SubmitButton>
+                </div>
+              </>
+            )}
+          </ActionForm>
+        )
+      }
+    </Dialog>
+  );
+}
+
+/**
+ * Editar la etiqueta y las notas de un período.
+ *
+ * La etiqueta —"Semana 2 - septiembre"— sólo se podía escribir al crearlo. Si
+ * salía mal tipeada, o si después había algo que anotar sobre ese período, no
+ * quedaba forma de tocarla: había que borrar y volver a crear, y eso con horas
+ * adentro no se puede.
+ *
+ * Las fechas no se editan acá a propósito. Mover el rango de un período con
+ * horas cargadas deja entradas fuera de sus propias fechas, y el cálculo pasa a
+ * mentir sin avisar. Si las fechas están mal, el período va vacío y se rehace.
+ */
+export function EditPeriodDialog({
+  weekId,
+  version,
+  label,
+  notes,
+  periodLabel,
+}: {
+  readonly weekId: string;
+  readonly version: number;
+  readonly label: string | null;
+  readonly notes: string | null;
+  readonly periodLabel: string;
+}) {
+  return (
+    <Dialog
+      title="Editar el período"
+      description={periodLabel}
+      width="sm"
+      trigger={(open) => (
+        <Button size="sm" variant="ghost" onClick={open} title="Editar etiqueta y notas">
+          <Icon name="pencil" size={14} />
+          <span className="sr-only">Editar</span>
+        </Button>
+      )}
+    >
+      {(close) => (
+        <ActionForm action={updateWeekAction} onSuccess={close} className="flex flex-col gap-4">
+          {({ fieldError }) => (
+            <>
+              <input type="hidden" name="id" value={weekId} />
+              <input type="hidden" name="expectedVersion" value={version} />
+
+              <Field
+                label="Etiqueta"
+                name="label"
+                hint="Cómo se lo nombra en la lista. Las fechas se muestran solas."
+                error={fieldError("label")}
+              >
+                <Input
+                  id="label"
+                  name="label"
+                  defaultValue={label ?? ""}
+                  maxLength={80}
+                  placeholder="Semana 2 - septiembre"
+                />
+              </Field>
+
+              <Field
+                label="Notas"
+                name="notes"
+                hint="Queda en el período. No lo ve nadie de afuera."
+                error={fieldError("notes")}
+              >
+                <Textarea
+                  id="notes"
+                  name="notes"
+                  rows={3}
+                  maxLength={1000}
+                  defaultValue={notes ?? ""}
+                  placeholder="Semana del evento; se pagó aparte el bono."
+                />
+              </Field>
+
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="ghost" onClick={close}>
+                  Cancelar
+                </Button>
+                <SubmitButton pendingLabel="Guardando…">Guardar</SubmitButton>
               </div>
             </>
           )}

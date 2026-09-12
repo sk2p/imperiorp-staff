@@ -123,6 +123,20 @@ const PATHS: Record<string, ReactElement> = {
       <path d="M5.6 15h8.8" />
     </>
   ),
+  pencil: (
+    <>
+      <path d="M13.1 3.6a1.7 1.7 0 0 1 2.4 2.4L6.9 14.6l-3.2.9.9-3.2z" />
+      <path d="M11.8 4.9 14.2 7.3" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M3.6 5.6h12.8" />
+      <path d="M8 5.6V4.2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.4" />
+      <path d="M5.2 5.6v10a1.2 1.2 0 0 0 1.2 1.2h7.2a1.2 1.2 0 0 0 1.2-1.2v-10" />
+      <path d="M8.4 8.8v4.8M11.6 8.8v4.8" />
+    </>
+  ),
 };
 
 export function Icon({

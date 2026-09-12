@@ -129,7 +129,24 @@ export default async function DashboardPage() {
         <Stat
           label="Staff activo"
           value={stats.activeStaff}
-          hint={"Promedio " + formatMinutes(stats.averageMinutesPerMember) + " por miembro"}
+          /**
+           * El promedio es de ESTE período, no el histórico de todos.
+           *
+           * Decía el histórico, y quedaba abajo de tres indicadores que hablan
+           * del período en curso: alguien leía "promedio 13h 52m" al lado de
+           * "horas del período: 0h" y no había forma de que eso cerrara. Los
+           * dos números eran ciertos y ninguno de los dos era el que se estaba
+           * leyendo.
+           */
+          hint={
+            withHours === 0
+              ? "Sin horas cargadas todavía"
+              : "Promedio " +
+                formatMinutes(Math.round(periodMinutes / withHours)) +
+                " entre los " +
+                withHours +
+                " que cargaron"
+          }
           icon={<Icon name="users" size={16} />}
         />
       </div>

@@ -35,7 +35,14 @@ import {
   updatePayment,
   voidPayment,
 } from "@/server/payments";
-import { addMemberToWeek, closeWeek, createWeek, reopenWeek, updateWeek } from "@/server/weeks";
+import {
+  addMemberToWeek,
+  closeWeek,
+  createWeek,
+  deleteWeek,
+  reopenWeek,
+  updateWeek,
+} from "@/server/weeks";
 import { changeOwnPassword, createUser, resetUserPassword, updateUser } from "@/server/users";
 import { updateRankRate, updateSetting } from "@/server/settings";
 import { revokeOwnSession, revokeSessionById } from "@/lib/auth/session";
@@ -64,6 +71,7 @@ import {
   addMemberToWeekSchema,
   closeWeekSchema,
   createWeekSchema,
+  deleteWeekSchema,
   reopenWeekSchema,
   updateWeekSchema,
 } from "@/validation/weeks";
@@ -608,6 +616,24 @@ export async function reopenWeekAction(
     },
     async (input, context) => {
       await reopenWeek(input, context.actor);
+      revalidateAll();
+    },
+  );
+}
+
+export async function deleteWeekAction(
+  _previous: ActionState<unknown>,
+  formData: FormData,
+): Promise<ActionState<unknown>> {
+  return runAction(
+    formData,
+    {
+      permission: P.WEEKS_DELETE,
+      schema: deleteWeekSchema,
+      success: "Período borrado.",
+    },
+    async (input, context) => {
+      await deleteWeek(input, context.actor);
       revalidateAll();
     },
   );
