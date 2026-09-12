@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, isNull, sql } from "drizzle-orm";
 
 import { db, withTransaction, type Transaction } from "@/db";
-import { hourEntries, shiftSessions, staffMembers, weeks } from "@/db/schema";
+import { hourEntries, shiftSessions, staffMembers, weeklyStaffRecords, weeks } from "@/db/schema";
 import { businessRule, conflict, isUniqueViolation, notFound } from "@/lib/core/errors";
 import { logger } from "@/lib/core/logger";
 import {
@@ -575,4 +575,33 @@ export async function periodSummary(staffMemberId: string): Promise<{
     seconds: filas.reduce((suma, fila) => suma + fila.seconds, 0),
     days: filas,
   };
+}
+
+/** La liquidación congelada de un período, para anunciarla al cerrarlo. */
+export async function frozenSettlement(weekId: string): Promise<
+  readonly {
+    readonly name: string;
+    readonly rank: string;
+    readonly minutes: number;
+    readonly amount: number;
+  }[]
+> {
+  const filas = await db
+    .select({
+      name: weeklyStaffRecords.staffNameSnapshot,
+      rank: weeklyStaffRecords.rankSnapshot,
+      minutes: weeklyStaffRecords.totalMinutes,
+      amount: weeklyStaffRecords.calculatedAmount,
+    })
+    .from(weeklyStaffRecords)
+    .where(and(eq(weeklyStaffRecords.weekId, weekId), gte(weeklyStaffRecords.totalMinutes, 1)))
+    .orderBy(desc(weeklyStaffRecords.calculatedAmount));
+
+  return filas;
+}
+
+/** El identificador de un período a partir de su código. */
+export async function findWeekByCode(code: string): Promise<string | null> {
+  const [fila] = await db.select({ id: weeks.id }).from(weeks).where(eq(weeks.code, code)).limit(1);
+  return fila?.id ?? null;
 }

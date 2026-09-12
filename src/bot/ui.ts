@@ -12,6 +12,7 @@ import {
 import { formatDuration, localDateTime } from "@/domain/clock";
 import { GROUP_DEFINITIONS, type StaffGroup } from "@/domain/groups";
 import { formatMoney } from "@/domain/money";
+import { formatMinutes } from "@/domain/time";
 import { COLOR, GROUP_COLOR } from "./config";
 import { emoji, emojiBoton } from "./emojis";
 import type { ActiveShift, CloseResult, DailyLine } from "@/server/shifts";
@@ -387,4 +388,76 @@ export function sinPermiso(motivo: string) {
 
 export function error(cuerpo: string) {
   return aviso(emoji("ERROR") + " No se pudo", cuerpo, COLOR.imperial);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Cierre de período                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * El aviso del sábado, cuando se cierra un período y arranca el siguiente.
+ *
+ * Es el momento en que todo el staff quiere saber su número, y hasta ahora la
+ * rotación pasaba en silencio: había que entrar a la página a buscarlo.
+ */
+export function avisoCierrePeriodo(input: {
+  readonly cerrado: { readonly code: string; readonly minutes: number; readonly amount: number };
+  readonly abierto: { readonly startDate: string; readonly endDate: string };
+  readonly lineas: readonly {
+    readonly name: string;
+    readonly rank: string;
+    readonly minutes: number;
+    readonly amount: number;
+  }[];
+}) {
+  const contenedor = new ContainerBuilder()
+    .setAccentColor(COLOR.imperial)
+    .addTextDisplayComponents(
+      texto(
+        "## " +
+          emoji("IMPERIO") +
+          " Período cerrado · " +
+          input.cerrado.code.replaceAll("_", " → ") +
+          "\nQuedó congelado: horas, rangos y tarifas de este período ya no cambian.",
+      ),
+    )
+    .addSeparatorComponents(separador());
+
+  if (input.lineas.length === 0) {
+    contenedor.addTextDisplayComponents(texto("Nadie cargó horas en este período."));
+  } else {
+    const filas = input.lineas.map(
+      (l) =>
+        "· " +
+        etiqueta(l.rank, l.name) +
+        " — `" +
+        formatMinutes(l.minutes) +
+        "` → **" +
+        formatMoney(l.amount) +
+        "**",
+    );
+
+    for (const bloque of partirEnBloques(filas, 3500)) {
+      contenedor.addTextDisplayComponents(texto(bloque));
+    }
+  }
+
+  return contenedor
+    .addSeparatorComponents(separador())
+    .addTextDisplayComponents(
+      texto(
+        emoji("DINERO") +
+          " **Total a pagar:** " +
+          formatMoney(input.cerrado.amount) +
+          "\n" +
+          emoji("RELOJ") +
+          " **Horas totales:** " +
+          formatMinutes(input.cerrado.minutes) +
+          "\n\n-# El período nuevo va del " +
+          input.abierto.startDate +
+          " al " +
+          input.abierto.endDate +
+          ". Todos arrancan en cero.",
+      ),
+    );
 }

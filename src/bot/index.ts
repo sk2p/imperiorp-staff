@@ -43,7 +43,7 @@ import {
 } from "@/server/shifts";
 import { notifyPayment } from "@/server/discord-notify";
 import { COLOR, GROUP_COLOR, botConfig, groupChannels } from "./config";
-import { revisarEmojis } from "./emojis";
+import { emoji, revisarEmojis } from "./emojis";
 import { startScheduler } from "./tasks";
 import {
   aviso,
@@ -285,6 +285,8 @@ async function accionActivos(interaction: RepliableInteraction, group: StaffGrou
 async function accionMisHoras(
   interaction: RepliableInteraction,
   member: ShiftMember,
+  /** Cuando un ADM consulta a otro, el texto habla de esa persona y no de "vos". */
+  ajeno = false,
 ): Promise<void> {
   const resumen = await periodSummary(member.id);
 
@@ -299,19 +301,31 @@ async function accionMisHoras(
       ? resumen.days
           .map((d) => "· " + d.workDate + ": `" + formatDuration(d.seconds) + "`")
           .join("\n")
-      : "Todavía no cargaste horas en este período.";
+      : ajeno
+        ? "Todavía no tiene horas en este período."
+        : "Todavía no cargaste horas en este período.";
 
   await responder(
     interaction,
     aviso(
-      "📊 Tus horas · " + resumen.weekLabel,
+      emoji("HORAS") +
+        " " +
+        (ajeno ? "Horas de " + member.name : "Tus horas") +
+        " · " +
+        resumen.weekLabel,
       etiqueta(member.rank, member.name) +
-        "\n\n**Total del período:** `" +
+        (member.discordUserId ? " <@" + member.discordUserId + ">" : "") +
+        "\n\n" +
+        emoji("RELOJ") +
+        " **Total del período:** `" +
         formatDuration(resumen.seconds) +
         "`\n\n" +
         detalle +
         (abierto
-          ? "\n\n-# 🟢 Tenés un fichaje abierto hace `" +
+          ? "\n\n-# " +
+            emoji("ENTRADA") +
+            (ajeno ? " Tiene" : " Tenés") +
+            " un fichaje abierto hace `" +
             formatDuration(abierto.seconds) +
             "`, todavía sin sumar."
           : ""),
@@ -584,6 +598,12 @@ const comandos = [
     .setName("mis-horas")
     .setDescription("Muestra tus horas del período en curso"),
   new SlashCommandBuilder()
+    .setName("horas")
+    .setDescription("Muestra las horas de otra persona en el período en curso")
+    .addUserOption((option) =>
+      option.setName("usuario").setDescription("De quién querés ver las horas").setRequired(true),
+    ),
+  new SlashCommandBuilder()
     .setName("activos")
     .setDescription("Muestra quién está fichado en este momento"),
 ].map((c) => c.toJSON());
@@ -592,6 +612,46 @@ async function manejarComando(interaction: ChatInputCommandInteraction): Promise
   if (interaction.commandName === "mis-horas") {
     const member = await requerirFicha(interaction);
     if (member) await accionMisHoras(interaction, member);
+    return;
+  }
+
+  /**
+   * Las horas de otro.
+   *
+   * Es de ADM para arriba: las horas de una persona son lo que va a cobrar, y
+   * no tiene por qué estar a la vista de todo el staff. Quien administra ya las
+   * ve en la página; esto le ahorra abrirla.
+   */
+  if (interaction.commandName === "horas") {
+    const { ok } = await puedeAdministrar(interaction);
+    if (!ok) {
+      await responder(
+        interaction,
+        sinPermiso(
+          "Ver las horas de otra persona es de **ADM** para arriba.\n\n" +
+            "Las tuyas las tenés en `/mis-horas`.",
+        ),
+      );
+      return;
+    }
+
+    const usuario = interaction.options.getUser("usuario", true);
+    const objetivo = await findMemberByDiscord(usuario.id);
+
+    if (!objetivo) {
+      await responder(
+        interaction,
+        errorUi(
+          "<@" +
+            usuario.id +
+            "> no está vinculado a ninguna ficha del staff, así que no tiene horas propias.\n\n" +
+            "Vinculalo con `/vincular` y a partir de ahí van a contarse.",
+        ),
+      );
+      return;
+    }
+
+    await accionMisHoras(interaction, objetivo, true);
     return;
   }
 
@@ -760,9 +820,17 @@ client.once(Events.ClientReady, async (listo) => {
    * crudo `<:NOMBRE:123>` y queda feo sin que nadie entienda por qué. Sólo
    * pasa al cambiar la configuración, así que se avisa al arrancar.
    */
-  const emojis = revisarEmojis((id) => {
-    const encontrado = listo.emojis.cache.get(id);
-    return encontrado ? { animated: encontrado.animated === true } : null;
+  const emojis = await revisarEmojis(async (id) => {
+    // Primero los de la aplicación: son los que viajan con el bot.
+    try {
+      const propio = await listo.application.emojis.fetch(id);
+      if (propio) return { animated: propio.animated === true, origen: "aplicación" };
+    } catch {
+      // No es de la aplicación; se prueba con los del servidor.
+    }
+
+    const delServidor = listo.emojis.cache.get(id);
+    return delServidor ? { animated: delServidor.animated === true, origen: "servidor" } : null;
   });
 
   if (emojis.rotos.length > 0) {

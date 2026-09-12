@@ -3,9 +3,15 @@ import type { Client, ContainerBuilder } from "discord.js";
 import { logger } from "@/lib/core/logger";
 import { localDate, previousLocalDate, startOfLocalDay } from "@/domain/clock";
 import { GROUP_DEFINITIONS, STAFF_GROUPS } from "@/domain/groups";
-import { autoCloseStaleShifts, dailyReport } from "@/server/shifts";
+import {
+  autoCloseStaleShifts,
+  dailyReport,
+  findWeekByCode,
+  frozenSettlement,
+} from "@/server/shifts";
+import { rotatePeriodIfDue } from "@/server/rotation";
 import { COLOR, GROUP_COLOR, allGroupChannels, botConfig, groupChannels } from "./config";
-import { registroFichaje, reporteDiario } from "./ui";
+import { avisoCierrePeriodo, registroFichaje, reporteDiario } from "./ui";
 
 /**
  * IMPERIO RP — Las dos tareas que corren solas.
@@ -62,8 +68,55 @@ function programarMedianoche(publicar: Publicar): void {
   setTimeout(() => {
     void publicarResumen(publicar)
       .catch((error: unknown) => logger.error("Falló el resumen diario", { error }))
+      // La rotación va DESPUÉS del resumen: primero se reporta el día que
+      // terminó, y recién ahí se cierra el período si corresponde.
+      .then(() => rotarPeriodo(publicar))
+      .catch((error: unknown) => logger.error("Falló la rotación del período", { error }))
       .finally(() => programarMedianoche(publicar));
   }, espera);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Rotación del período                                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Cierra el período vencido, abre el siguiente y lo anuncia.
+ *
+ * Esto ya existía como tarea programada de Vercel, pero depende de un secreto
+ * que hoy no está configurado, así que nunca llegó a correr. El bot está
+ * prendido las veinticuatro horas igual: es el lugar natural para esto.
+ *
+ * `rotatePeriodIfDue` decide sola si corresponde y es idempotente, así que
+ * llamarla todas las noches no duplica nada. Y si una noche el bot estuvo
+ * caído, a la siguiente cierra igual el período vencido en vez de dejar dos
+ * semanas mezcladas en la misma liquidación.
+ */
+export async function rotarPeriodo(publicar: Publicar): Promise<void> {
+  const resultado = await rotatePeriodIfDue();
+
+  if (!resultado.acted) {
+    logger.info("Rotación evaluada: no correspondía", { motivo: resultado.reason });
+    return;
+  }
+
+  logger.info("Período rotado", { motivo: resultado.reason });
+
+  const config = botConfig();
+  const destino = config.resumenGlobal ?? config.pagos;
+  if (!destino || !resultado.closedWeek || !resultado.openedWeek) return;
+
+  const cerrada = await findWeekByCode(resultado.closedWeek.code);
+  const lineas = cerrada ? await frozenSettlement(cerrada) : [];
+
+  await publicar(
+    destino,
+    avisoCierrePeriodo({
+      cerrado: resultado.closedWeek,
+      abierto: resultado.openedWeek,
+      lineas,
+    }),
+  );
 }
 
 export async function publicarResumen(publicar: Publicar, fecha?: string): Promise<void> {

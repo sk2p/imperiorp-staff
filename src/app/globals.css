@@ -1179,3 +1179,102 @@ body[data-arrastrando] {
   -webkit-user-select: none;
   cursor: grabbing;
 }
+
+/* --------------------------------------------------------------------------
+   Banda del período
+   -------------------------------------------------------------------------- */
+
+.period-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  border-radius: var(--radius-card);
+  border: 1px solid;
+  padding: 0.75rem 1rem;
+  position: relative;
+  overflow: hidden;
+}
+
+/* El período que se está cargando ahora: filo imperial y un halo apenas visible. */
+.period-banner-abierto {
+  border-color: rgb(229 22 44 / 0.32);
+  background: linear-gradient(90deg, rgb(229 22 44 / 0.1), transparent 42%), var(--surface-raised);
+}
+
+/* Uno ya cerrado: apagado, para que se note que no es donde hay que escribir. */
+.period-banner-cerrado {
+  border-color: var(--line-strong);
+  background: var(--surface);
+}
+
+.period-banner-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: none;
+  border-radius: 99px;
+}
+
+.period-banner-abierto .period-banner-dot {
+  background: var(--color-imperial-500);
+  box-shadow: 0 0 10px 1px rgb(229 22 44 / 0.75);
+  animation: pulso-periodo 2.4s ease-in-out infinite;
+}
+
+.period-banner-cerrado .period-banner-dot {
+  background: var(--color-chalk-600);
+}
+
+@keyframes pulso-periodo {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.period-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  border-radius: 99px;
+  border: 1px solid;
+  padding: 0.1875rem 0.5625rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.period-chip-abierto {
+  border-color: rgb(229 22 44 / 0.4);
+  background: rgb(229 22 44 / 0.12);
+  color: var(--color-imperial-400);
+}
+
+.period-chip-cerrado {
+  border-color: var(--line-strong);
+  background: rgb(255 255 255 / 0.04);
+  color: var(--color-chalk-400);
+}
+
+.period-volver {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  padding: 0.25rem 0.5625rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--color-chalk-300);
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.period-volver:hover {
+  background: rgb(255 255 255 / 0.06);
+  color: var(--color-chalk-50);
+}

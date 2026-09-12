@@ -93,18 +93,24 @@ export function emojisSinPersonalizar(): readonly EmojiKey[] {
 /**
  * Revisa que los emojis personalizados existan y que el bot pueda usarlos.
  *
- * Un emoji mal configurado no rompe nada: Discord muestra el texto crudo
- * `<:NOMBRE:123>` y queda feo sin que nadie entienda por qué. Como sólo pasa al
- * cambiar la configuración, conviene enterarse al arrancar y no por una captura
- * de alguien del staff.
+ * Hay DOS lugares distintos de donde puede salir un emoji, y conviene tenerlo
+ * claro porque se parecen y no son lo mismo:
  *
- * Las tres causas posibles son: el id está mal, el bot no está en el servidor
- * que tiene ese emoji, o el emoji es animado y falta la `a` en `<a:`.
+ *   · Los del SERVIDOR, que sube cualquiera con permisos. El bot sólo puede
+ *     usarlos si está en ese servidor.
+ *   · Los de la APLICACIÓN, que se suben al bot mismo desde el portal de
+ *     desarrolladores —los que tienen dos mil lugares. Esos son suyos y los
+ *     puede usar en cualquier servidor donde esté, sin depender de nadie.
+ *
+ * Para un bot que va a mudarse de servidor, los de la aplicación son la opción
+ * correcta: se mudan con él.
  */
-export function revisarEmojis(existe: (id: string) => { animated: boolean } | null): {
+export async function revisarEmojis(
+  buscar: (id: string) => Promise<{ animated: boolean; origen: string } | null>,
+): Promise<{
   readonly ok: readonly EmojiKey[];
   readonly rotos: readonly { key: EmojiKey; motivo: string }[];
-} {
+}> {
   const ok: EmojiKey[] = [];
   const rotos: { key: EmojiKey; motivo: string }[] = [];
 
@@ -119,11 +125,12 @@ export function revisarEmojis(existe: (id: string) => { animated: boolean } | nu
       continue;
     }
 
-    const encontrado = existe(analizado.id);
+    const encontrado = await buscar(analizado.id);
     if (!encontrado) {
       rotos.push({
         key,
-        motivo: "no existe o el bot no está en el servidor que lo tiene",
+        motivo:
+          "no aparece ni en la aplicación ni en los servidores donde está el bot; revisá el id",
       });
       continue;
     }

@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { Icon } from "@/components/layout/icons";
 import { WeekSelector } from "@/components/ui/filters";
+import { PeriodBanner } from "@/components/ui/period-banner";
 import { ProgressMeter } from "@/components/ui/charts";
 import {
   Badge,
@@ -94,6 +95,15 @@ export default async function PaymentsPage({
             ) : null}
           </>
         }
+      />
+
+      <PeriodBanner
+        startDate={week.startDate}
+        endDate={week.endDate}
+        status={week.status}
+        isCurrent={week.id === currentWeek?.id}
+        accion="Pagando el período"
+        currentHref={currentWeek && week.id !== currentWeek.id ? "/pagos" : undefined}
       />
 
       {!isClosed ? (

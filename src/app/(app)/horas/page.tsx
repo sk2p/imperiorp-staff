@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { Icon } from "@/components/layout/icons";
 import { WeekSelector } from "@/components/ui/filters";
+import { PeriodBanner } from "@/components/ui/period-banner";
 import {
   Callout,
   Card,
@@ -104,6 +105,15 @@ export default async function HoursPage({
             ) : null}
           </>
         }
+      />
+
+      <PeriodBanner
+        startDate={week.startDate}
+        endDate={week.endDate}
+        status={week.status}
+        isCurrent={week.id === current?.id}
+        accion="Cargando horas del período"
+        currentHref={current && week.id !== current.id ? "/horas" : undefined}
       />
 
       {!isOpen ? (
