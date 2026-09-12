@@ -11,7 +11,14 @@ import {
   type Payment,
 } from "@/db/schema";
 import type { ActorContext } from "@/lib/auth/context";
-import { businessRule, concurrency, conflict, notFound, validation } from "@/lib/core/errors";
+import {
+  businessRule,
+  concurrency,
+  conflict,
+  isUniqueViolation,
+  notFound,
+  validation,
+} from "@/lib/core/errors";
 import { DEFAULT_RANK_COLORS, GROUP_LIST, groupForRank, type StaffGroup } from "@/domain/groups";
 import { formatMoney } from "@/domain/money";
 import { RANK_DEFINITIONS, isStaffRank, rankBaseOrder } from "@/domain/ranks";
@@ -26,6 +33,7 @@ import type {
   VoidPaymentInput,
 } from "@/validation/payments";
 import { appendAuditLog } from "./audit";
+import { notifyPayment } from "./discord-notify";
 /**
  * IMPERIO RP — Pagos de liquidaciones.
  *
@@ -40,16 +48,6 @@ import { appendAuditLog } from "./audit";
  * pueden cambiar, y pagar un importe que después se mueve es exactamente el
  * problema que este sistema existe para evitar.
  */
-const UNIQUE_VIOLATION = "23505";
-function isUniqueViolation(error: unknown, constraintHint?: string): boolean {
-  if (typeof error !== "object" || error === null) return false;
-  const candidate = error as { code?: unknown; constraint?: unknown; message?: unknown };
-  if (candidate.code !== UNIQUE_VIOLATION) return false;
-  if (!constraintHint) return true;
-  const constraint = typeof candidate.constraint === "string" ? candidate.constraint : "";
-  const message = typeof candidate.message === "string" ? candidate.message : "";
-  return constraint.includes(constraintHint) || message.includes(constraintHint);
-}
 /* -------------------------------------------------------------------------- */
 /* Consultas                                                                  */
 /* -------------------------------------------------------------------------- */
@@ -417,6 +415,23 @@ export async function createPayment(
       reason: amount !== record.calculatedAmount ? input.mismatchReason : null,
       metadata: { weekId: input.weekId, staffMemberId: input.staffMemberId },
     });
+
+    /**
+     * El aviso a Discord se dispara y no se espera.
+     *
+     * Va dentro de la transacción sólo porque acá están todos los datos a mano;
+     * no la retiene: `notifyPayment` no lanza nunca y se encarga sola de sus
+     * errores. Un problema de Discord no puede voltear un pago ya registrado.
+     */
+    void notifyPayment({
+      staffName: memberName,
+      rank: record.rankSnapshot,
+      amount: created.amount,
+      minutes: record.totalMinutes,
+      period: formatPeriodLabel(week.startDate, week.endDate),
+      actor: actor.username,
+    });
+
     return created;
   });
 }
@@ -595,6 +610,24 @@ export async function voidPayment(input: VoidPaymentInput, actor: ActorContext):
       reason: input.reason,
       metadata: { weekId: existing.weekId, staffMemberId: existing.staffMemberId },
     });
+
+    const [semana] = await tx
+      .select({ startDate: weeks.startDate, endDate: weeks.endDate })
+      .from(weeks)
+      .where(eq(weeks.id, existing.weekId))
+      .limit(1);
+
+    void notifyPayment({
+      staffName: member?.name ?? "un miembro",
+      rank: "—",
+      amount: existing.amount,
+      minutes: 0,
+      period: semana ? formatPeriodLabel(semana.startDate, semana.endDate) : "—",
+      actor: actor.username,
+      voided: true,
+      reason: input.reason,
+    });
+
     return voided;
   });
 }

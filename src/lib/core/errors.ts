@@ -150,3 +150,42 @@ export function serializeError(error: unknown, traceId?: string): SerializedErro
 export function httpStatusFor(error: unknown): number {
   return isAppError(error) ? error.status : 500;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Errores de PostgreSQL                                                      */
+/* -------------------------------------------------------------------------- */
+
+/** Violación de índice único. */
+export const PG_UNIQUE_VIOLATION = "23505";
+
+/**
+ * Busca el código SQLSTATE de un error, esté donde esté.
+ *
+ * Cada driver lo envuelve distinto: `pg` lo deja arriba de todo, PGlite lo
+ * mete en `cause`, y Drizzle a veces agrega otra capa. Si no se mira en las
+ * tres, el `catch` no reconoce el error y al usuario le llega la consulta SQL
+ * entera en pantalla en lugar de "ya tenés un fichaje abierto".
+ */
+export function pgErrorCode(error: unknown): string | null {
+  let actual: unknown = error;
+
+  for (let nivel = 0; nivel < 4 && actual !== null && typeof actual === "object"; nivel += 1) {
+    const codigo = (actual as { code?: unknown }).code;
+    if (typeof codigo === "string" && /^[0-9A-Z]{5}$/.test(codigo)) return codigo;
+    actual = (actual as { cause?: unknown }).cause;
+  }
+
+  return null;
+}
+
+export function isUniqueViolation(error: unknown, constraintHint?: string): boolean {
+  if (pgErrorCode(error) !== PG_UNIQUE_VIOLATION) return false;
+  if (!constraintHint) return true;
+
+  const texto = JSON.stringify(
+    error instanceof Error
+      ? { m: error.message, c: (error as { constraint?: unknown }).constraint }
+      : error,
+  );
+  return texto.includes(constraintHint);
+}

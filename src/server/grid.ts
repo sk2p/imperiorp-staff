@@ -340,6 +340,13 @@ export async function setGridCell(input: SetCellInput, actor: ActorContext): Pro
           .update(hourEntries)
           .set({
             minutes: input.minutes,
+            /**
+             * Cargar a mano fija el día entero: los segundos pasan a ser los
+             * de ese número, no los que venían de los fichajes. Si no, el
+             * total exacto y lo que se ve en la casilla dirían cosas distintas
+             * y el próximo fichaje sumaría sobre un número ya corregido.
+             */
+            seconds: input.minutes * 60,
             status,
             version: previous.version + 1,
             updatedAt: new Date(),
@@ -355,6 +362,7 @@ export async function setGridCell(input: SetCellInput, actor: ActorContext): Pro
         weekId: input.weekId,
         workDate: input.workDate,
         minutes: input.minutes,
+        seconds: input.minutes * 60,
         recordedBy: actor.id,
         recordedByUsername: actor.username,
       });

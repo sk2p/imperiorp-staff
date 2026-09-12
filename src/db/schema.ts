@@ -161,6 +161,15 @@ export const staffMembers = pgTable(
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
 
     /**
+     * Identificador de Discord, para que el bot sepa quién fichó.
+     *
+     * Es el número, no el nombre de usuario: los nombres se cambian y el
+     * número no, así que vincular por nombre se rompería el día que alguien se
+     * renombre. `discordTag` queda como dato de contacto, esto es el vínculo.
+     */
+    discordUserId: varchar("discord_user_id", { length: 20 }),
+
+    /**
      * Posición manual dentro de su grupo en la grilla de horas. El equipo
      * ordena la lista como le resulta cómodo y ese orden se conserva.
      *
@@ -187,6 +196,9 @@ export const staffMembers = pgTable(
     index("staff_members_active_idx").on(table.active),
     index("staff_members_category_idx").on(table.category),
     index("staff_members_display_order_idx").on(table.displayOrder),
+    uniqueIndex("staff_members_discord_idx")
+      .on(table.discordUserId)
+      .where(sql`discord_user_id is not null and archived_at is null`),
   ],
 );
 
@@ -337,6 +349,18 @@ export const hourEntries = pgTable(
      * y se pagan. Los valores válidos los define `DAY_STATUSES`.
      */
     status: varchar("status", { length: 16 }).notNull().default("normal"),
+
+    /**
+     * Los segundos exactos del día. `minutes` es su vista redondeada, y es lo
+     * que se liquida.
+     *
+     * Existe porque los fichajes de Discord son tiempo medido: un turno de
+     * 1h 48m 53s no se puede guardar sólo en minutos sin ir perdiendo un cacho
+     * en cada turno. Acá se acumula exacto y `minutes` se deriva, así que no
+     * hay dos números que puedan contradecirse. Una carga a mano en la planilla
+     * escribe los dos.
+     */
+    seconds: integer("seconds").notNull().default(0),
 
     recordedBy: uuid("recorded_by").references(() => users.id, { onDelete: "set null" }),
     recordedByUsername: varchar("recorded_by_username", { length: 32 }).notNull(),
@@ -545,6 +569,15 @@ export const securityEvents = pgTable(
     /** info | warning | critical */
     severity: varchar("severity", { length: 12 }).notNull().default("info"),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+
+    /**
+     * Identificador de Discord, para que el bot sepa quién fichó.
+     *
+     * Es el número, no el nombre de usuario: los nombres se cambian y el
+     * número no, así que vincular por nombre se rompería el día que alguien se
+     * renombre. `discordTag` queda como dato de contacto, esto es el vínculo.
+     */
+    discordUserId: varchar("discord_user_id", { length: 20 }),
     username: varchar("username", { length: 32 }),
     ip: varchar("ip", { length: 45 }),
     userAgent: text("user_agent"),
@@ -716,6 +749,82 @@ export type Payment = typeof payments.$inferSelect;
 export type NewPayment = typeof payments.$inferInsert;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type NewAuditLog = typeof auditLogs.$inferInsert;
+
+/* ========================================================================== */
+/* 16. Fichajes — entrada y salida desde Discord                              */
+/* ========================================================================== */
+
+/**
+ * Un fichaje es un turno medido: entrada, salida y el tiempo entre las dos.
+ *
+ * Es DISTINTO de `hour_entries`, y la diferencia importa. `hour_entries` es la
+ * casilla del día en la planilla —lo que se liquida—, y acá viven los turnos
+ * reales que la fueron llenando. Un día puede tener cuatro fichajes; la casilla
+ * es uno solo. Separarlos permite mostrar en Discord "entraste a las 22:10,
+ * saliste a las 00:20" sin ensuciar la liquidación, y permite auditar de dónde
+ * salió cada minuto de una semana.
+ *
+ * Al cerrarse, el fichaje se reparte por día local —un turno que cruza la
+ * medianoche son dos días— y suma sus segundos a la casilla de cada uno.
+ */
+export const shiftSessions = pgTable(
+  "shift_sessions",
+  {
+    id: primaryId(),
+    staffMemberId: uuid("staff_member_id")
+      .notNull()
+      .references(() => staffMembers.id, { onDelete: "cascade" }),
+
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    /** Nulo mientras el fichaje sigue abierto. */
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+
+    /** Día local en que empezó. Para agrupar los reportes sin recalcular husos. */
+    startDate: date("start_date").notNull(),
+
+    /** Duración exacta, al cerrarse. */
+    seconds: integer("seconds").notNull().default(0),
+
+    /** discord | panel | sistema */
+    source: varchar("source", { length: 16 }).notNull().default("discord"),
+
+    discordUserId: varchar("discord_user_id", { length: 20 }),
+    discordUsername: varchar("discord_username", { length: 64 }),
+
+    /** Quién lo cerró, si no fue la propia persona. */
+    closedByDiscordId: varchar("closed_by_discord_id", { length: 20 }),
+    /** normal | forzado | automatico */
+    closeReason: varchar("close_reason", { length: 32 }),
+
+    /** Si sus segundos ya se sumaron a la planilla. Evita contar dos veces. */
+    applied: boolean("applied").notNull().default(false),
+
+    note: varchar("note", { length: 200 }),
+
+    version: integer("version").notNull().default(1),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    /**
+     * Un solo fichaje abierto por persona.
+     *
+     * Lo garantiza la base y no una consulta previa: dos clicks seguidos en
+     * "Entrada" llegan juntos, las dos consultas verían "no hay ninguno
+     * abierto" y las dos insertarían. Con el índice, una gana y la otra recibe
+     * un error que se traduce en "ya tenés un fichaje abierto".
+     */
+    uniqueIndex("shift_sessions_open_unique_idx")
+      .on(table.staffMemberId)
+      .where(sql`ended_at is null`),
+    index("shift_sessions_staff_date_idx").on(table.staffMemberId, table.startDate),
+    index("shift_sessions_date_idx").on(table.startDate),
+  ],
+);
+
+export type ShiftSession = typeof shiftSessions.$inferSelect;
+export type NewShiftSession = typeof shiftSessions.$inferInsert;
+
 export type SecurityEvent = typeof securityEvents.$inferSelect;
 export type NewSecurityEvent = typeof securityEvents.$inferInsert;
 export type LoginAttempt = typeof loginAttempts.$inferSelect;
