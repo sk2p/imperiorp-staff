@@ -850,8 +850,13 @@ export async function reopenWeek(input: ReopenWeekInput, actor: ActorContext): P
  *
  * Es el mismo filtro que usa el recálculo: ni anulada, ni en un estado que no
  * sume.
+ *
+ * Las columnas van escritas a mano y calificadas en vez de interpoladas. Vale
+ * igual en los dos lugares donde se usa —una consulta del ORM sobre esta misma
+ * tabla y una subconsulta lateral escrita a mano— y deja fuera de toda duda
+ * contra qué tabla se resuelve cada nombre.
  */
-const VIGENTE = sql`${hourEntries.voidedAt} is null and ${hourEntries.status} = 'normal'`;
+const VIGENTE = sql`hour_entries.voided_at is null and hour_entries.status = 'normal'`;
 
 export interface DeletePreflight {
   readonly canDelete: boolean;
@@ -981,51 +986,74 @@ export async function deleteWeekPreflights(
   const mapa = new Map<string, DeletePreflight>();
   if (weekIds.length === 0) return mapa;
 
-  const [entradas, pagos, fichas] = await Promise.all([
-    db
-      .select({
-        weekId: hourEntries.weekId,
-        conTiempo: sql<number>`count(*) filter (where (${hourEntries.minutes} > 0 or ${hourEntries.seconds} > 0) and ${VIGENTE})::int`,
-        marcadas: sql<number>`count(*) filter (where not (${VIGENTE}) or ${hourEntries.reason} is not null)::int`,
-        minutos: sql<number>`coalesce(sum(${hourEntries.minutes}) filter (where ${VIGENTE}), 0)::int`,
-        personas: sql<number>`count(distinct ${hourEntries.staffMemberId}) filter (where ${hourEntries.minutes} > 0 and ${VIGENTE})::int`,
-      })
-      .from(hourEntries)
-      .where(inArray(hourEntries.weekId, [...weekIds]))
-      .groupBy(hourEntries.weekId),
-    db
-      .select({
-        weekId: payments.weekId,
-        total: sql<number>`count(*)::int`,
-        anulados: sql<number>`count(*) filter (where ${payments.voidedAt} is not null)::int`,
-      })
-      .from(payments)
-      .where(inArray(payments.weekId, [...weekIds]))
-      .groupBy(payments.weekId),
-    db
-      .select({ weekId: weeklyStaffRecords.weekId, total: sql<number>`count(*)::int` })
-      .from(weeklyStaffRecords)
-      .where(inArray(weeklyStaffRecords.weekId, [...weekIds]))
-      .groupBy(weeklyStaffRecords.weekId),
-  ]);
+  const ids = sql.join(
+    weekIds.map((id) => sql`${id}::uuid`),
+    sql`, `,
+  );
 
-  const porPagos = new Map(pagos.map((fila) => [fila.weekId, fila]));
-  const porFichas = new Map(fichas.map((fila) => [fila.weekId, fila.total]));
-  const porEntradas = new Map(entradas.map((fila) => [fila.weekId, fila]));
+  /**
+   * Un solo viaje a la base.
+   *
+   * Eran tres consultas en paralelo, que parece lo mismo y no lo es: la base
+   * está en otro continente y cada conexión nueva cuesta un cuarto de segundo
+   * de saludo TLS. Tres consultas "en paralelo" sobre un pool frío son tres
+   * saludos, no uno.
+   *
+   * Acá los períodos entran como una lista y cada uno se cruza contra sus
+   * propias subconsultas. La base hace el mismo trabajo; lo que se ahorra son
+   * dos idas y vueltas.
+   */
+  const resultado = await db.execute<{
+    week_id: string;
+    con_tiempo: number;
+    marcadas: number;
+    minutos: number;
+    personas: number;
+    pagos: number;
+    pagos_anulados: number;
+    fichas: number;
+  }>(sql`
+    select
+      p.id as week_id,
+      coalesce(e.con_tiempo, 0) as con_tiempo,
+      coalesce(e.marcadas, 0)   as marcadas,
+      coalesce(e.minutos, 0)    as minutos,
+      coalesce(e.personas, 0)   as personas,
+      coalesce(g.pagos, 0)      as pagos,
+      coalesce(g.anulados, 0)   as pagos_anulados,
+      coalesce(f.fichas, 0)     as fichas
+    from unnest(array[${ids}]) as p(id)
+    left join lateral (
+      select
+        count(*) filter (where (hour_entries.minutes > 0 or hour_entries.seconds > 0) and ${VIGENTE})::int as con_tiempo,
+        count(*) filter (where not (${VIGENTE}) or hour_entries.reason is not null)::int as marcadas,
+        coalesce(sum(hour_entries.minutes) filter (where ${VIGENTE}), 0)::int as minutos,
+        count(distinct hour_entries.staff_member_id) filter (where hour_entries.minutes > 0 and ${VIGENTE})::int as personas
+      from hour_entries
+      where hour_entries.week_id = p.id
+    ) e on true
+    left join lateral (
+      select count(*)::int as pagos,
+             count(*) filter (where voided_at is not null)::int as anulados
+      from payments where payments.week_id = p.id
+    ) g on true
+    left join lateral (
+      select count(*)::int as fichas
+      from weekly_staff_records where weekly_staff_records.week_id = p.id
+    ) f on true
+  `);
 
-  for (const weekId of weekIds) {
-    const entrada = porEntradas.get(weekId);
-
+  for (const fila of resultado.rows ?? []) {
     mapa.set(
-      weekId,
+      fila.week_id,
       resolverPreflight({
-        conTiempo: entrada?.conTiempo ?? 0,
-        marcadas: entrada?.marcadas ?? 0,
-        minutos: entrada?.minutos ?? 0,
-        personas: entrada?.personas ?? 0,
-        paymentCount: porPagos.get(weekId)?.total ?? 0,
-        paymentsVoided: porPagos.get(weekId)?.anulados ?? 0,
-        emptyRecords: porFichas.get(weekId) ?? 0,
+        conTiempo: Number(fila.con_tiempo),
+        marcadas: Number(fila.marcadas),
+        minutos: Number(fila.minutos),
+        personas: Number(fila.personas),
+        paymentCount: Number(fila.pagos),
+        paymentsVoided: Number(fila.pagos_anulados),
+        emptyRecords: Number(fila.fichas),
       }),
     );
   }

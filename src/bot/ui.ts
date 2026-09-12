@@ -414,6 +414,24 @@ export function estadoPeriodo(datos: PeriodOverview) {
     )
     .addSeparatorComponents(separador());
 
+  /**
+   * El aviso va arriba de todo cuando corresponde: si hoy no entra en este
+   * período, cualquier número de abajo se lee mal. Alguien mira "0h acumuladas"
+   * y concluye que no fichó nadie, cuando lo que pasa es que las horas de hoy
+   * no tienen dónde caer.
+   */
+  if (!datos.cubreHoy) {
+    contenedor
+      .addTextDisplayComponents(
+        texto(
+          emoji("ERROR") +
+            " **Hoy no entra en este período.** Lo que se fiche hoy se cierra bien, pero no queda " +
+            "cargado en ninguna planilla. Se arregla en la página, en **Períodos**.",
+        ),
+      )
+      .addSeparatorComponents(separador());
+  }
+
   if (datos.totalMinutes <= 0) {
     return contenedor.addTextDisplayComponents(
       texto(
@@ -495,6 +513,131 @@ export function estadoPeriodo(datos: PeriodOverview) {
   }
 
   return contenedor;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Tabla de horas                                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * La tabla del período, de mayor a menor.
+ *
+ * Los tres primeros llevan medalla y el resto va numerado. No lleva importes a
+ * propósito: la ve cualquiera del staff, y cuánto cobra cada uno no es
+ * información de vestuario. Las horas sí — son públicas entre compañeros y son
+ * justamente lo que la tabla premia.
+ *
+ * La barra de cada fila es proporcional al primero, no al total: contra el
+ * total las barras quedarían todas pegadas a cero y no se compararía nada.
+ */
+export function tablaHoras(datos: {
+  readonly startDate: string;
+  readonly endDate: string;
+  readonly total: number;
+  readonly filas: readonly { name: string; rank: string; minutes: number }[];
+}) {
+  const contenedor = new ContainerBuilder()
+    .setAccentColor(COLOR.imperial)
+    .addTextDisplayComponents(
+      texto(
+        "## " +
+          emoji("HORAS") +
+          " Tabla de horas\n" +
+          emoji("CALENDARIO") +
+          " Período " +
+          fechaLegible(datos.startDate) +
+          " → " +
+          fechaLegible(datos.endDate),
+      ),
+    )
+    .addSeparatorComponents(separador());
+
+  if (datos.filas.length === 0) {
+    return contenedor.addTextDisplayComponents(
+      texto("Todavía no hay horas cargadas en este período.\n-# El primero que fiche encabeza."),
+    );
+  }
+
+  const puestos = ["🥇", "🥈", "🥉"];
+  const mayor = datos.filas[0]?.minutes ?? 1;
+
+  const lineas = datos.filas.map((fila, indice) => {
+    const llenos = Math.max(1, Math.min(12, Math.round((fila.minutes / mayor) * 12)));
+
+    return (
+      (puestos[indice] ?? "`" + String(indice + 1).padStart(2, " ") + "`") +
+      " " +
+      etiqueta(fila.rank, fila.name) +
+      "\n-# `" +
+      "█".repeat(llenos) +
+      "░".repeat(12 - llenos) +
+      "` " +
+      formatMinutes(fila.minutes)
+    );
+  });
+
+  return contenedor
+    .addTextDisplayComponents(texto(lineas.join("\n")))
+    .addSeparatorComponents(separador())
+    .addTextDisplayComponents(texto("-# Total del período: `" + formatMinutes(datos.total) + "`"));
+}
+
+/* -------------------------------------------------------------------------- */
+/* Alarma: hoy no entra en ningún período                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * El aviso de que las horas de hoy no tienen dónde anotarse.
+ *
+ * Pasa cuando el período de esta semana se borró, o cuando el siguiente se creó
+ * arrancando más adelante. Un fichaje se anota en el período que CONTIENE el
+ * día trabajado: sin uno que cubra hoy, quien cierre su turno recibe un aviso y
+ * nadie más se entera. Después alguien reclama su sueldo y la hora no está.
+ *
+ * Se manda una vez por día, no cada diez minutos: una alarma que se repite sin
+ * parar se silencia, y una alarma silenciada no sirve para nada.
+ */
+export function sinPeriodoParaHoy(
+  hoy: string,
+  proximo: { readonly startDate: string; readonly endDate: string } | null,
+) {
+  /**
+   * El período abierto puede haber quedado atrás o no haber empezado todavía,
+   * y no es lo mismo: uno se cierra, el otro se corrige o se espera. Decir
+   * "el más próximo" para los dos casos obliga a mirar las fechas y deducirlo.
+   */
+  const cuerpo = !proximo
+    ? "No hay ningún período abierto."
+    : (proximo.endDate < hoy
+        ? "El único período abierto (**" +
+          fechaLegible(proximo.startDate) +
+          "** → **" +
+          fechaLegible(proximo.endDate) +
+          "**) ya terminó"
+        : "El período abierto (**" +
+          fechaLegible(proximo.startDate) +
+          "** → **" +
+          fechaLegible(proximo.endDate) +
+          "**) todavía no empezó") +
+      ", y hoy es **" +
+      fechaLegible(hoy) +
+      "**.";
+
+  return new ContainerBuilder()
+    .setAccentColor(COLOR.imperial)
+    .addTextDisplayComponents(
+      texto("## " + emoji("ERROR") + " Las horas de hoy no tienen dónde anotarse\n" + cuerpo),
+    )
+    .addSeparatorComponents(separador())
+    .addTextDisplayComponents(
+      texto(
+        "Un fichaje se anota en el período que **contiene el día trabajado**. Mientras siga así, " +
+          "todo lo que se fiche hoy se cierra bien pero no queda cargado en ninguna planilla.\n\n" +
+          "Se arregla en la página, en **Períodos**: creando uno que incluya hoy, o corrigiendo " +
+          "las fechas del que está abierto.\n" +
+          "-# Este aviso se manda una vez por día mientras el problema siga.",
+      ),
+    );
 }
 
 /* -------------------------------------------------------------------------- */

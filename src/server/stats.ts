@@ -24,67 +24,70 @@ export interface GlobalStats {
   readonly averageMinutesPerMember: number;
   readonly paymentsCount: number;
 }
+/**
+ * Las cifras generales del sistema, en UNA sola consulta.
+ *
+ * Eran cinco, una detrás de otra. En un servidor al lado de la base eso no se
+ * nota; contra una base remota cada viaje cuesta unos cincuenta milisegundos y
+ * cinco viajes en fila son un cuarto de segundo de pantalla en blanco, cada vez
+ * que alguien abre el tablero — y el tablero se refresca solo cada doce
+ * segundos.
+ *
+ * Van todas como subconsultas de un `select` sin `from`: PostgreSQL las resuelve
+ * en paralelo y devuelve una fila. El trabajo de la base es el mismo; lo que se
+ * ahorra son cuatro idas y vueltas por la red.
+ */
 export async function getGlobalStats(): Promise<GlobalStats> {
-  const [records] = await db
-    .select({
-      totalMinutes: sql<number>`coalesce(sum(${weeklyStaffRecords.totalMinutes}), 0)::int`,
-      totalGenerated:
-        sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`.mapWith(
-          Number,
-        ),
-      membersWithHours: sql<number>`count(*) filter (where ${weeklyStaffRecords.totalMinutes} > 0)::int`,
-    })
-    .from(weeklyStaffRecords);
-  const [paid] = await db
-    .select({
-      total: sql<number>`coalesce(sum(${payments.amount}), 0)::bigint`.mapWith(Number),
-      count: sql<number>`count(*)::int`,
-    })
-    .from(payments)
-    .where(isNull(payments.voidedAt));
-  const [weekCounts] = await db
-    .select({
-      closed: sql<number>`count(*) filter (where ${weeks.status} = 'closed')::int`,
-      open: sql<number>`count(*) filter (where ${weeks.status} = 'open')::int`,
-    })
-    .from(weeks);
-  const [staffCounts] = await db
-    .select({
-      active: sql<number>`count(*) filter (where ${staffMembers.archivedAt} is null)::int`,
-      archived: sql<number>`count(*) filter (where ${staffMembers.archivedAt} is not null)::int`,
-    })
-    .from(staffMembers);
-  const totalMinutes = records?.totalMinutes ?? 0;
-  const totalGenerated = Number(records?.totalGenerated ?? 0);
-  const totalPaid = Number(paid?.total ?? 0);
-  const membersWithHours = records?.membersWithHours ?? 0;
+  const resultado = await db.execute<{
+    total_minutes: number;
+    total_generated: string;
+    members_with_hours: number;
+    closed_generated: string;
+    total_paid: string;
+    payments_count: number;
+    weeks_closed: number;
+    weeks_open: number;
+    staff_active: number;
+    staff_archived: number;
+  }>(sql`
+    select
+      (select coalesce(sum(total_minutes), 0)::int from weekly_staff_records) as total_minutes,
+      (select coalesce(sum(calculated_amount), 0)::bigint from weekly_staff_records) as total_generated,
+      (select count(*) filter (where total_minutes > 0)::int from weekly_staff_records) as members_with_hours,
+      (select coalesce(sum(r.calculated_amount), 0)::bigint
+         from weekly_staff_records r join weeks w on w.id = r.week_id
+        where w.status = 'closed') as closed_generated,
+      (select coalesce(sum(amount), 0)::bigint from payments where voided_at is null) as total_paid,
+      (select count(*)::int from payments where voided_at is null) as payments_count,
+      (select count(*) filter (where status = 'closed')::int from weeks) as weeks_closed,
+      (select count(*) filter (where status = 'open')::int from weeks) as weeks_open,
+      (select count(*) filter (where archived_at is null)::int from staff_members) as staff_active,
+      (select count(*) filter (where archived_at is not null)::int from staff_members) as staff_archived
+  `);
+
+  const fila = resultado.rows?.[0];
+
+  const totalMinutes = Number(fila?.total_minutes ?? 0);
+  const totalGenerated = Number(fila?.total_generated ?? 0);
+  const totalPaid = Number(fila?.total_paid ?? 0);
+  const membersWithHours = Number(fila?.members_with_hours ?? 0);
+
   return {
     totalMinutes,
     totalGenerated,
     totalPaid,
     // Lo pendiente sólo cuenta lo ya liquidado: un período abierto todavía no se debe.
-    totalPending: Math.max(0, (await getClosedGeneratedTotal()) - totalPaid),
-    weeksClosed: weekCounts?.closed ?? 0,
-    weeksOpen: weekCounts?.open ?? 0,
-    activeStaff: staffCounts?.active ?? 0,
-    archivedStaff: staffCounts?.archived ?? 0,
+    totalPending: Math.max(0, Number(fila?.closed_generated ?? 0) - totalPaid),
+    weeksClosed: Number(fila?.weeks_closed ?? 0),
+    weeksOpen: Number(fila?.weeks_open ?? 0),
+    activeStaff: Number(fila?.staff_active ?? 0),
+    archivedStaff: Number(fila?.staff_archived ?? 0),
     averageMinutesPerMember:
       membersWithHours === 0 ? 0 : Math.round(totalMinutes / membersWithHours),
-    paymentsCount: paid?.count ?? 0,
+    paymentsCount: Number(fila?.payments_count ?? 0),
   };
 }
-async function getClosedGeneratedTotal(): Promise<number> {
-  const [row] = await db
-    .select({
-      total: sql<number>`coalesce(sum(${weeklyStaffRecords.calculatedAmount}), 0)::bigint`.mapWith(
-        Number,
-      ),
-    })
-    .from(weeklyStaffRecords)
-    .innerJoin(weeks, eq(weeklyStaffRecords.weekId, weeks.id))
-    .where(eq(weeks.status, "closed"));
-  return Number(row?.total ?? 0);
-}
+
 /* -------------------------------------------------------------------------- */
 /* Series temporales                                                          */
 /* -------------------------------------------------------------------------- */

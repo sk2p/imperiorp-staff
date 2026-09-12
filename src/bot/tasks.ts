@@ -8,17 +8,19 @@ import {
   dailyReport,
   findWeekByCode,
   frozenSettlement,
+  todayIsCovered,
 } from "@/server/shifts";
 import { rotatePeriodIfDue } from "@/server/rotation";
 import { COLOR, GROUP_COLOR, allGroupChannels, botConfig, groupChannels } from "./config";
-import { avisoCierrePeriodo, registroFichaje, reporteDiario } from "./ui";
+import { avisoCierrePeriodo, registroFichaje, reporteDiario, sinPeriodoParaHoy } from "./ui";
 
 /**
  * IMPERIO RP — Las dos tareas que corren solas.
  *
  *   · A medianoche se publica el resumen del día que terminó: uno por bloque en
  *     su canal, y uno global con todo el staff.
- *   · Cada diez minutos se cierran los fichajes que quedaron abiertos de más.
+ *   · Cada diez minutos se cierran los fichajes que quedaron abiertos de más y
+ *     se controla que el día de hoy caiga adentro de algún período abierto.
  *
  * El reloj es el local, no el del servidor donde corra el bot. Si esto se muda
  * a una máquina en otro huso, la medianoche sigue siendo la de Argentina.
@@ -32,12 +34,17 @@ const REVISION_MS = 10 * 60 * 1000;
 /** Qué día se reportó por última vez, para no repetir si el proceso se reinicia. */
 let ultimoReportado: string | null = null;
 
+/** Qué día se avisó por última vez que hoy no entra en ningún período. */
+let ultimoAvisoSinPeriodo: string | null = null;
+
 export function startScheduler(client: Client, publicar: Publicar): void {
   // Al arrancar se limpia lo que haya quedado colgado de la corrida anterior.
   void revisarVencidos(publicar);
+  void revisarCobertura(publicar);
 
   setInterval(() => {
     void revisarVencidos(publicar);
+    void revisarCobertura(publicar);
   }, REVISION_MS);
 
   programarMedianoche(publicar);
@@ -180,6 +187,39 @@ async function revisarVencidos(publicar: Publicar): Promise<void> {
     }
   } catch (error) {
     logger.error("Falló la revisión de fichajes vencidos", { error });
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Días que no entran en ningún período                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Controla que el día de hoy caiga adentro de algún período abierto.
+ *
+ * Un fichaje se anota en el período que CONTIENE el día trabajado. Si hoy no
+ * cae en ninguno, el turno se cierra bien y las horas se informan como
+ * salteadas — pero sólo lo ve quien fichó. Nadie más se entera hasta que esa
+ * persona reclama su sueldo y la hora no está en ningún lado.
+ *
+ * El aviso va una vez por día y no cada diez minutos. Una alarma que se repite
+ * sin parar se silencia, y una alarma silenciada no sirve para nada.
+ */
+async function revisarCobertura(publicar: Publicar): Promise<void> {
+  try {
+    const hoy = localDate();
+    if (ultimoAvisoSinPeriodo === hoy) return;
+
+    const { cubierto, proximo } = await todayIsCovered();
+    if (cubierto) return;
+
+    ultimoAvisoSinPeriodo = hoy;
+    logger.warn("El día de hoy no entra en ningún período abierto", { hoy, proximo });
+
+    const config = botConfig();
+    await publicar(config.resumenGlobal ?? config.pagos, sinPeriodoParaHoy(hoy, proximo));
+  } catch (error) {
+    logger.error("Falló el control de cobertura del día", { error });
   }
 }
 

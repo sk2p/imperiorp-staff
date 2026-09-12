@@ -37,6 +37,7 @@ import {
   listActiveShifts,
   listUnlinkedMembers,
   periodOverview,
+  periodRanking,
   periodSummary,
   startShift,
   unlinkDiscordAccount,
@@ -54,6 +55,7 @@ import {
   estadoPeriodo,
   etiqueta,
   sinPermiso,
+  tablaHoras,
   listaActivos,
   panelFichaje,
   registroFichaje,
@@ -617,6 +619,9 @@ const comandos = [
     .setName("activos")
     .setDescription("Muestra quién está fichado en este momento"),
   new SlashCommandBuilder()
+    .setName("top")
+    .setDescription("La tabla de horas del período, de mayor a menor"),
+  new SlashCommandBuilder()
     .setName("periodo")
     .setDescription("Cómo viene el período: horas por categoría y quién no cargó nada"),
 ].map((c) => c.toJSON());
@@ -665,6 +670,29 @@ async function manejarComando(interaction: ChatInputCommandInteraction): Promise
     }
 
     await accionMisHoras(interaction, objetivo, true);
+    return;
+  }
+
+  /**
+   * La tabla la ve cualquiera del staff vinculado. No lleva importes: las horas
+   * son públicas entre compañeros —son lo que la tabla premia— y lo que cobra
+   * cada uno no.
+   */
+  if (interaction.commandName === "top") {
+    const member = await requerirFicha(interaction);
+    if (!member) return;
+
+    const datos = await periodRanking();
+
+    if (!datos) {
+      await responder(
+        interaction,
+        errorUi("No hay ningún período abierto, así que todavía no hay tabla que mostrar."),
+      );
+      return;
+    }
+
+    await responder(interaction, tablaHoras(datos));
     return;
   }
 

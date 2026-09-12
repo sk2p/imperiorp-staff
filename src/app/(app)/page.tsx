@@ -121,10 +121,11 @@ export default async function DashboardPage() {
 
       {week && !hoyEstaCubierto ? (
         <Callout tone="warning" title="Hoy no cae dentro de ningún período abierto">
-          El período más próximo va del {formatCalendarDateShort(week.startDate)} al{" "}
-          {formatCalendarDateShort(week.endDate)}, y hoy es {formatCalendarDateShort(hoy)}. Un
-          fichaje se anota en el período que contiene el día trabajado: mientras siga así, lo que se
-          fiche hoy queda sin registrar en ninguna planilla.
+          El período abierto ({formatCalendarDateShort(week.startDate)} →{" "}
+          {formatCalendarDateShort(week.endDate)}){" "}
+          {week.endDate < hoy ? "ya terminó" : "todavía no empezó"}, y hoy es{" "}
+          {formatCalendarDateShort(hoy)}. Un fichaje se anota en el período que contiene el día
+          trabajado: mientras siga así, lo que se fiche hoy queda sin registrar en ninguna planilla.
           {can(PERMISSIONS.WEEKS_CREATE)
             ? " Creá un período que incluya el día de hoy, o corregí las fechas del que está abierto."
             : " Avisale a pit o a mati."}

@@ -659,6 +659,8 @@ export async function findWeekByCode(code: string): Promise<string | null> {
 export interface PeriodOverview {
   readonly startDate: string;
   readonly endDate: string;
+  /** Si el día de hoy cae adentro de estas fechas. */
+  readonly cubreHoy: boolean;
   readonly totalMinutes: number;
   readonly totalAmount: number;
   readonly memberCount: number;
@@ -707,9 +709,12 @@ export async function periodOverview(): Promise<PeriodOverview | null> {
 
   const desglose = desgloses.get(semana.id);
 
+  const hoy = localDate();
+
   return {
     startDate: semana.startDate,
     endDate: semana.endDate,
+    cubreHoy: semana.startDate <= hoy && hoy <= semana.endDate,
     totalMinutes: desglose?.totalMinutes ?? 0,
     totalAmount: totales?.totalAmount ?? 0,
     memberCount: totales?.memberCount ?? 0,
@@ -719,5 +724,71 @@ export async function periodOverview(): Promise<PeriodOverview | null> {
     // Ocho alcanzan para que se entienda; la lista completa está en la página.
     sinCargar: enCero.slice(0, 8),
     totalSinCargar: enCero.length,
+  };
+}
+
+/**
+ * La tabla de horas del período en curso, de mayor a menor.
+ *
+ * Es lo mismo que muestra el podio de la página, pero entero y en Discord. No
+ * lleva importes a propósito: la tabla la puede ver cualquiera del staff, y
+ * cuánto cobra cada uno no es información de vestuario. Las horas sí — son
+ * públicas entre compañeros y son justamente lo que la tabla premia.
+ */
+export async function periodRanking(limite = 12): Promise<{
+  readonly startDate: string;
+  readonly endDate: string;
+  readonly total: number;
+  readonly filas: readonly {
+    readonly name: string;
+    readonly rank: string;
+    readonly minutes: number;
+  }[];
+} | null> {
+  const semana = await currentPeriod();
+  if (!semana) return null;
+
+  const filas = await db
+    .select({
+      name: weeklyStaffRecords.staffNameSnapshot,
+      rank: weeklyStaffRecords.rankSnapshot,
+      minutes: weeklyStaffRecords.totalMinutes,
+    })
+    .from(weeklyStaffRecords)
+    .where(and(eq(weeklyStaffRecords.weekId, semana.id), gte(weeklyStaffRecords.totalMinutes, 1)))
+    .orderBy(desc(weeklyStaffRecords.totalMinutes))
+    .limit(limite);
+
+  const [totales] = await db
+    .select({ total: sql<number>`coalesce(sum(${weeklyStaffRecords.totalMinutes}), 0)::int` })
+    .from(weeklyStaffRecords)
+    .where(eq(weeklyStaffRecords.weekId, semana.id));
+
+  return {
+    startDate: semana.startDate,
+    endDate: semana.endDate,
+    total: totales?.total ?? 0,
+    filas,
+  };
+}
+
+/**
+ * ¿Hay algún período abierto que contenga el día de hoy?
+ *
+ * Si no lo hay, un fichaje que se cierre hoy no tiene dónde anotarse: las horas
+ * se informan como salteadas y quedan sin cargar en ninguna planilla. Es la
+ * clase de problema que no se nota hasta que alguien reclama su sueldo, así que
+ * el bot lo vigila y avisa.
+ */
+export async function todayIsCovered(): Promise<{
+  readonly cubierto: boolean;
+  readonly proximo: { readonly startDate: string; readonly endDate: string } | null;
+}> {
+  const hoy = localDate();
+  const semana = await currentPeriod();
+
+  return {
+    cubierto: semana !== null && semana.startDate <= hoy && hoy <= semana.endDate,
+    proximo: semana,
   };
 }

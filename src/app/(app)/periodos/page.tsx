@@ -56,23 +56,31 @@ export default async function PeriodsPage({
    * de hoy— y los demás siguen teniendo sus horas y su plata adentro.
    */
   /**
+   * Todo lo que falta, de una sola vez.
+   *
+   * Antes eran tres tandas encadenadas: primero los períodos, después las
+   * revisiones de cierre, y recién ahí los desgloses. Cada tanda espera a que
+   * vuelva la anterior, y contra una base remota cada espera son decenas de
+   * milisegundos de pantalla en blanco. Ninguna de estas tres necesita el
+   * resultado de las otras: sólo necesitan la lista, que ya está.
+   *
    * El chequeo previo al cierre se pide para TODOS los períodos abiertos, no
-   * sólo para el primero: cada uno se cierra por su cuenta y cada uno tiene sus
-   * propias advertencias.
+   * sólo para el primero: cada uno se cierra por su cuenta y tiene sus propias
+   * advertencias.
    */
-  const preflights = can(PERMISSIONS.WEEKS_CLOSE)
-    ? new Map(
-        await Promise.all(
-          openWeeks.map(async (week) => [week.id, await preflightClose(week.id)] as const),
-        ),
-      )
-    : new Map<string, Awaited<ReturnType<typeof preflightClose>>>();
-
   const ids = result.items.map((week) => week.id);
-  const [breakdowns, borrables] = await Promise.all([
+
+  const [preflightPares, breakdowns, borrables] = await Promise.all([
+    can(PERMISSIONS.WEEKS_CLOSE)
+      ? Promise.all(
+          openWeeks.map(async (week) => [week.id, await preflightClose(week.id)] as const),
+        )
+      : Promise.resolve([]),
     weekBreakdowns(ids),
     can(PERMISSIONS.WEEKS_DELETE) ? deleteWeekPreflights(ids) : Promise.resolve(null),
   ]);
+
+  const preflights = new Map(preflightPares);
 
   const totalGenerated = result.items.reduce((sum, week) => sum + week.totalAmount, 0);
   const totalPaid = result.items.reduce((sum, week) => sum + week.paidAmount, 0);
