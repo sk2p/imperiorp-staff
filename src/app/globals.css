@@ -957,7 +957,15 @@ body::after {
   position: relative;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  /*
+   * Sin `overflow: hidden` a propósito.
+   *
+   * Recortar el contenido obliga al navegador a aplanar la ficha, y una ficha
+   * aplanada no tiene adentro: las capas quedan pegadas al fondo por más
+   * `preserve-3d` que se declare. Lo que se recortaba se recorta solo — el
+   * fondo de un elemento ya respeta su borde redondeado — y el filo del rango
+   * lleva su propio redondeo.
+   */
   border-radius: var(--radius-card);
   border: 1px solid var(--line);
   /* Un degradado apenas perceptible en lugar de un relleno plano: la ficha
@@ -996,6 +1004,7 @@ body::after {
   position: absolute;
   inset: 0 auto 0 0;
   width: 3px;
+  border-radius: var(--radius-card) 0 0 var(--radius-card);
   background: linear-gradient(
     180deg,
     var(--rank, #6f747d),
@@ -1025,11 +1034,53 @@ body::after {
   opacity: 1;
 }
 
+/*
+ * Las capas: lo que se despega de la ficha al inclinarla.
+ *
+ * Acá es donde el efecto deja de ser un rectángulo girado y pasa a tener
+ * adentro. El escudo del rango y la insignia flotan sobre la superficie, el
+ * nombre un poco menos, el resto acompaña. Al mover el puntero, cada capa se
+ * desplaza distinto contra el fondo — que es exactamente lo que hace el ojo
+ * leer profundidad.
+ *
+ * Son milímetros: 26 píxeles de altura sobre una perspectiva de 900. Mucho más
+ * y las capas se despegan tanto que la ficha se desarma.
+ */
+.capa {
+  transform: translateZ(0);
+  transition: transform 260ms cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+.staff-card:hover .capa {
+  transform: translateZ(8px);
+}
+
+.staff-card:hover .capa-media {
+  transform: translateZ(16px);
+}
+
+.staff-card:hover .capa-alta {
+  transform: translateZ(26px);
+}
+
+/* La sombra que proyectan las capas altas sobre la ficha, al despegarse. */
+.staff-card:hover .capa-alta {
+  filter: drop-shadow(0 6px 10px rgb(0 0 0 / 0.45));
+}
+
 /* Sin mouse no hay "pasar por encima": en el teléfono la ficha queda quieta. */
 @media (hover: none), (prefers-reduced-motion: reduce) {
   .staff-card,
   .staff-card:hover {
     transform: none;
+  }
+
+  .capa,
+  .staff-card:hover .capa,
+  .staff-card:hover .capa-media,
+  .staff-card:hover .capa-alta {
+    transform: none;
+    filter: none;
   }
 }
 
@@ -2330,5 +2381,180 @@ select:focus {
   to {
     opacity: 1;
     transform: none;
+  }
+}
+
+/* -------------------------------------------------------------------------- *
+ * Podio
+ *
+ * Tres bloques parados en el espacio, con la tapa a la vista. La tapa es una
+ * cara girada noventa grados desde el borde de arriba del bloque: eso es lo que
+ * convierte un rectángulo en un volumen. El punto de fuga está arriba y al
+ * centro, así que los bloques de los costados se ven levemente de costado, como
+ * pasaría parado frente a un podio de verdad.
+ * -------------------------------------------------------------------------- */
+.podio {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0 0.25rem;
+  padding-top: 0.75rem;
+  perspective: 620px;
+  perspective-origin: 50% 0%;
+  /* El piso. Sin una línea abajo los bloques no se apoyan en nada y parecen
+     recortados contra el borde de la tarjeta. */
+  border-bottom: 1px solid rgb(255 255 255 / 0.1);
+}
+
+.podio-puesto {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.podio-bloque {
+  position: relative;
+  width: 100%;
+  display: grid;
+  place-items: center;
+  transform-style: preserve-3d;
+  /* Inclinado apenas hacia atrás: sin esto la tapa no se vería. */
+  transform: rotateX(14deg);
+  border-radius: 3px 3px 0 0;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.09), rgb(255 255 255 / 0.03));
+  border: 1px solid rgb(255 255 255 / 0.09);
+  border-bottom: none;
+  /* Crece desde abajo al aparecer, como si lo levantaran. */
+  transform-origin: bottom center;
+  animation: podio-sube 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes podio-sube {
+  from {
+    transform: rotateX(14deg) scaleY(0);
+  }
+  to {
+    transform: rotateX(14deg) scaleY(1);
+  }
+}
+
+/* La tapa: nace del borde de arriba y se acuesta hacia atrás. */
+.podio-tapa {
+  position: absolute;
+  inset: auto 0 100% 0;
+  height: 0.55rem;
+  transform-origin: bottom center;
+  transform: rotateX(90deg);
+  border-radius: 3px 3px 0 0;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.16), rgb(255 255 255 / 0.07));
+}
+
+.podio-numero {
+  font-size: 0.8125rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-chalk-500);
+}
+
+/* El primero: oro, más alto, y con luz propia. */
+.podio-1 .podio-bloque {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, #e6b34a 34%, transparent),
+    color-mix(in oklab, #e6b34a 9%, transparent)
+  );
+  border-color: color-mix(in oklab, #e6b34a 42%, transparent);
+  box-shadow: 0 -8px 26px -10px color-mix(in oklab, #e6b34a 55%, transparent);
+  animation-delay: 0.08s;
+}
+
+.podio-1 .podio-tapa {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, #e6b34a 58%, transparent),
+    color-mix(in oklab, #e6b34a 26%, transparent)
+  );
+}
+
+.podio-1 .podio-numero {
+  color: #f3d79a;
+}
+
+.podio-2 .podio-bloque {
+  animation-delay: 0.16s;
+}
+
+.podio-3 .podio-bloque {
+  animation-delay: 0.24s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .podio-bloque {
+    animation: none;
+  }
+}
+
+/*
+ * La moneda en reposo: quieta, y gira sólo al pasarle por encima.
+ *
+ * Se pausa la animación en lugar de sacarla. Una animación pausada sigue
+ * mandando sobre el `transform`, así que la moneda se queda en su primer
+ * fotograma —de frente— y arranca sin saltar cuando llega el puntero.
+ */
+.moneda-en-reposo .moneda-cuerpo {
+  animation-play-state: paused;
+}
+
+.moneda-en-reposo:hover .moneda-cuerpo,
+a:hover .moneda-en-reposo .moneda-cuerpo {
+  animation-duration: 3.2s;
+  animation-play-state: running;
+}
+
+/* -------------------------------------------------------------------------- *
+ * Destello del botón principal
+ *
+ * Una franja de luz que cruza el botón al pasar por encima. Dura un cuarto de
+ * segundo y no vuelve: es un acento, no una animación en bucle pidiendo que la
+ * miren.
+ * -------------------------------------------------------------------------- */
+.btn-primary {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.btn-primary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(
+    100deg,
+    transparent 38%,
+    rgb(255 255 255 / 0.28) 50%,
+    transparent 62%
+  );
+  transform: translateX(-140%);
+  pointer-events: none;
+}
+
+.btn-primary:hover::after {
+  animation: destello-cruza 0.62s ease-out;
+}
+
+@keyframes destello-cruza {
+  to {
+    transform: translateX(140%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-primary:hover::after {
+    animation: none;
   }
 }

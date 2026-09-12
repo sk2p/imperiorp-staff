@@ -13,6 +13,7 @@ import {
   Stat,
 } from "@/components/ui/primitives";
 import { formatMoney, formatMoneyCompact } from "@/domain/money";
+import { localDate } from "@/domain/clock";
 import { formatCalendarDateShort, formatPeriodLabel } from "@/domain/periods";
 import { CATEGORY_ACCENT, type StaffCategory } from "@/domain/ranks";
 import { formatMinutes } from "@/domain/time";
@@ -39,6 +40,19 @@ export default async function DashboardPage() {
   const { viewer, can } = await requireAuth();
 
   const week = await getCurrentWeek();
+
+  /**
+   * ¿El período que la pantalla llama "activo" contiene el día de hoy?
+   *
+   * No siempre. Si el período de esta semana se borró, o si el siguiente se
+   * creó arrancando el sábado, el más reciente abierto puede no haber empezado
+   * todavía. Y eso importa mucho más de lo que parece: un fichaje se anota en
+   * el período cuyas fechas CONTIENEN el día trabajado, así que si hoy no cae
+   * en ninguno, las horas de hoy no tienen dónde anotarse. El bot avisa a quien
+   * ficha, pero nadie más se entera.
+   */
+  const hoy = localDate();
+  const hoyEstaCubierto = week !== null && week.startDate <= hoy && hoy <= week.endDate;
 
   const [stats, series, lines, payments, recentHours, recentPayments] = await Promise.all([
     getGlobalStats(),
@@ -75,7 +89,9 @@ export default async function DashboardPage() {
         }
         description={
           week
-            ? "Este es el período activo. Todo lo que se registre hoy entra acá."
+            ? hoyEstaCubierto
+              ? "Este es el período activo. Todo lo que se registre hoy entra acá."
+              : "Es el período abierto más próximo, pero hoy no cae adentro."
             : "Todavía no hay un período abierto. Creá uno para empezar a cargar horas."
         }
         actions={
@@ -100,6 +116,18 @@ export default async function DashboardPage() {
         <Callout tone="warning" title="No hay ningún período abierto">
           Las horas siempre pertenecen a un período. Sin uno abierto no se puede registrar nada
           nuevo, aunque el historial anterior sigue disponible y consultable.
+        </Callout>
+      ) : null}
+
+      {week && !hoyEstaCubierto ? (
+        <Callout tone="warning" title="Hoy no cae dentro de ningún período abierto">
+          El período más próximo va del {formatCalendarDateShort(week.startDate)} al{" "}
+          {formatCalendarDateShort(week.endDate)}, y hoy es {formatCalendarDateShort(hoy)}. Un
+          fichaje se anota en el período que contiene el día trabajado: mientras siga así, lo que se
+          fiche hoy queda sin registrar en ninguna planilla.
+          {can(PERMISSIONS.WEEKS_CREATE)
+            ? " Creá un período que incluya el día de hoy, o corregí las fechas del que está abierto."
+            : " Avisale a pit o a mati."}
         </Callout>
       ) : null}
 

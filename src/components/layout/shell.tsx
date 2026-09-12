@@ -1,12 +1,12 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { roleLabel } from "@/domain/permissions";
 import type { Viewer } from "@/lib/auth/context";
+import { Coin } from "@/components/ui/coin";
 import { cn } from "@/components/ui/primitives";
 import { Icon } from "./icons";
 import { visibleItems, type NavItem } from "./navigation";
@@ -28,14 +28,9 @@ function isActiveHref(pathname: string, href: string): boolean {
 function Brand({ compact = false }: { readonly compact?: boolean }) {
   return (
     <Link href="/" className="flex items-center gap-2.5 focus-visible:outline-offset-4">
-      <Image
-        src="/imperiorplogo.webp"
-        alt="Imperio RP"
-        width={34}
-        height={34}
-        priority
-        className="shrink-0 drop-shadow-[0_2px_8px_rgb(229_22_44/0.45)]"
-      />
+      {/* El escudo en volumen. Quieto mientras nadie lo toca: gira sólo cuando
+          el puntero pasa por la marca. */}
+      <Coin size={34} girar={false} priority className="shrink-0" />
       {!compact ? (
         <span className="min-w-0">
           <span className="text-chalk-50 block text-[0.8125rem] leading-tight font-bold tracking-[0.14em]">

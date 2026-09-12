@@ -66,13 +66,13 @@ function StaffCard({
 
       <header className="flex items-start gap-2.5">
         <span
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[0.6875rem] font-black"
+          className="capa capa-alta flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[0.6875rem] font-black"
           style={{ backgroundColor: card.rankColor, color: readableTextOn(card.rankColor) }}
         >
           {card.name.slice(0, 2).toUpperCase()}
         </span>
 
-        <div className="min-w-0 flex-1">
+        <div className="capa capa-media min-w-0 flex-1">
           <Link
             href={"/staff/" + card.id}
             className="text-chalk-50 hover:text-imperial-400 block truncate text-sm font-semibold transition"
@@ -83,7 +83,7 @@ function StaffCard({
         </div>
 
         <span
-          className="shrink-0 rounded-md px-1.5 py-0.5 text-[0.625rem] font-bold"
+          className="capa capa-alta shrink-0 rounded-md px-1.5 py-0.5 text-[0.625rem] font-bold"
           style={{ backgroundColor: card.rankColor, color: readableTextOn(card.rankColor) }}
         >
           {card.rank}
@@ -96,7 +96,7 @@ function StaffCard({
         </Badge>
       ) : null}
 
-      <div className="border-line mt-3 grid grid-cols-2 gap-2.5 border-t pt-3">
+      <div className="capa border-line mt-3 grid grid-cols-2 gap-2.5 border-t pt-3">
         <Dato label="Horas del período">
           <span className="tnum text-chalk-100 font-semibold">
             {formatMinutes(card.periodMinutes)}
@@ -113,7 +113,7 @@ function StaffCard({
         </Dato>
       </div>
 
-      <footer className="mt-3 flex items-center justify-between gap-2">
+      <footer className="capa mt-3 flex items-center justify-between gap-2">
         <span className="tnum text-chalk-700 text-[0.625rem]">
           {formatMoney(card.hourlyRate)}/hora
         </span>

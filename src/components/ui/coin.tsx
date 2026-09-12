@@ -24,14 +24,21 @@ export function Coin({
   size = 128,
   className,
   priority = false,
+  girar = true,
 }: {
   readonly size?: number;
   readonly className?: string;
   readonly priority?: boolean;
+  /**
+   * `false` la deja quieta y sólo gira al pasarle por encima. Es lo que
+   * corresponde en la barra lateral: algo girando todo el tiempo al costado de
+   * la pantalla, ocho horas por día, deja de ser lindo y pasa a molestar.
+   */
+  readonly girar?: boolean;
 }) {
   return (
     <div
-      className={"moneda " + (className ?? "")}
+      className={"moneda " + (girar ? "" : "moneda-en-reposo ") + (className ?? "")}
       style={{ "--moneda-tam": size + "px" } as React.CSSProperties}
       aria-hidden
     >

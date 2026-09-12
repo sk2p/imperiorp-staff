@@ -133,23 +133,70 @@ export function PeriodInside({
         ))}
       </div>
 
-      {breakdown.top.length > 0 ? (
-        <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          <span className="text-chalk-700 text-[0.625rem] tracking-[0.14em] uppercase">
-            Más horas
-          </span>
-          {breakdown.top.map((persona, indice) => (
-            <span key={persona.name + indice} className="reparto-chip">
-              <span className="reparto-chip-puesto">{indice + 1}</span>
-              <span className="text-chalk-200 font-medium">{persona.name}</span>
-              <span className="text-chalk-600">{rankLabel(persona.rank)}</span>
-              <span className="tnum text-chalk-300 font-semibold">
+      {breakdown.top.length > 0 ? <Podio top={breakdown.top} /> : null}
+    </div>
+  );
+}
+
+/**
+ * El podio de las tres personas con más horas del período.
+ *
+ * Son tres bloques parados en el espacio, con su cara superior a la vista: el
+ * primero más alto, los otros dos a los costados, como en un podio de verdad.
+ * No es una lista con números al lado — un podio se entiende sin leerlo, y ver
+ * el propio nombre arriba de todo es la única parte de este panel que a alguien
+ * le da ganas de cargar una hora más.
+ *
+ * La geometría es CSS: cada bloque gira sobre su eje horizontal y la tapa es
+ * una cara acostada noventa grados desde el borde de arriba. Sin imágenes y
+ * sin una línea de JavaScript.
+ */
+const ALTURA = ["3.9rem", "2.7rem", "2rem"] as const;
+
+function Podio({
+  top,
+}: {
+  readonly top: readonly {
+    readonly name: string;
+    readonly rank: string;
+    readonly minutes: number;
+  }[];
+}) {
+  /** Orden en pantalla: segundo, primero, tercero. Como se paran de verdad. */
+  const orden = [1, 0, 2].filter((indice) => indice < top.length);
+
+  return (
+    <div className="mt-4">
+      <p className="mb-0 overline">Más horas</p>
+
+      <div className="podio">
+        {orden.map((indice) => {
+          const persona = top[indice];
+          if (!persona) return null;
+
+          return (
+            <div
+              key={persona.name + indice}
+              className={cn("podio-puesto", "podio-" + (indice + 1))}
+            >
+              <p className="text-chalk-100 max-w-[7.5rem] truncate text-xs font-semibold">
+                {persona.name}
+              </p>
+              <p className="tnum text-chalk-500 text-[0.625rem]">
                 {formatMinutes(persona.minutes)}
-              </span>
-            </span>
-          ))}
-        </div>
-      ) : null}
+              </p>
+              <p className="text-chalk-700 mb-1 text-[0.5625rem] tracking-wide uppercase">
+                {rankLabel(persona.rank)}
+              </p>
+
+              <div className="podio-bloque" style={{ height: ALTURA[indice] }}>
+                <span aria-hidden className="podio-tapa" />
+                <span className="podio-numero">{indice + 1}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
