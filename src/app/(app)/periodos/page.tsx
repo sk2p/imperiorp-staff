@@ -266,6 +266,8 @@ export default async function PeriodsPage({
                                 blocker={borrable.blocker}
                                 canDelete={borrable.canDelete}
                                 seededCount={borrable.emptyRecords}
+                                markedCount={borrable.markedEntries}
+                                cerrado={week.status === "closed"}
                               />
                             ) : null}
                           </div>

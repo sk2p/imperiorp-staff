@@ -30,6 +30,12 @@ export default function RootLayout({ children }: { readonly children: React.Reac
   return (
     <html lang="es">
       <body>
+        {/* El fondo, en capas, detrás de todo y en todas las pantallas.
+            Va acá y no en el armazón de la aplicación porque el ingreso y el
+            404 viven afuera de ese armazón y también son parte de la casa. */}
+        <div aria-hidden className="piso" />
+        <div aria-hidden className="grano" />
+
         <ToastProvider>{children}</ToastProvider>
       </body>
     </html>

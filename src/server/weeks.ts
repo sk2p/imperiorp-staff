@@ -838,6 +838,21 @@ export async function reopenWeek(input: ReopenWeekInput, actor: ActorContext): P
  * Los pagos son todavía más terminantes: aunque estén anulados, un pago es
  * plata que se movió. Con un solo pago cargado, el período se queda.
  */
+/**
+ * Qué entrada de horas cuenta como horas de verdad.
+ *
+ * Poner una casilla en cero desde la planilla no borra la entrada: la anula, y
+ * la entrada se queda con sus minutos originales más una marca de anulación.
+ * Los totales del período la ignoran —por eso la pantalla muestra 0h— así que
+ * contarla acá hacía que el sistema dijera "tiene 24 horas cargadas" sobre un
+ * período que en pantalla estaba vacío. Quien lo leía no tenía forma de
+ * entender de qué le estaban hablando.
+ *
+ * Es el mismo filtro que usa el recálculo: ni anulada, ni en un estado que no
+ * sume.
+ */
+const VIGENTE = sql`${hourEntries.voidedAt} is null and ${hourEntries.status} = 'normal'`;
+
 export interface DeletePreflight {
   readonly canDelete: boolean;
   /** Entradas de horas con tiempo cargado. */
@@ -861,10 +876,10 @@ export async function deleteWeekPreflight(
 ): Promise<DeletePreflight> {
   const [entradas] = await executor
     .select({
-      conTiempo: sql<number>`count(*) filter (where ${hourEntries.minutes} > 0 or ${hourEntries.seconds} > 0)::int`,
-      marcadas: sql<number>`count(*) filter (where ${hourEntries.status} <> 'normal' or ${hourEntries.voidedAt} is not null or ${hourEntries.reason} is not null)::int`,
-      minutos: sql<number>`coalesce(sum(${hourEntries.minutes}), 0)::int`,
-      personas: sql<number>`count(distinct ${hourEntries.staffMemberId}) filter (where ${hourEntries.minutes} > 0)::int`,
+      conTiempo: sql<number>`count(*) filter (where (${hourEntries.minutes} > 0 or ${hourEntries.seconds} > 0) and ${VIGENTE})::int`,
+      marcadas: sql<number>`count(*) filter (where not (${VIGENTE}) or ${hourEntries.reason} is not null)::int`,
+      minutos: sql<number>`coalesce(sum(${hourEntries.minutes}) filter (where ${VIGENTE}), 0)::int`,
+      personas: sql<number>`count(distinct ${hourEntries.staffMemberId}) filter (where ${hourEntries.minutes} > 0 and ${VIGENTE})::int`,
     })
     .from(hourEntries)
     .where(eq(hourEntries.weekId, weekId));
@@ -938,12 +953,7 @@ export function resolverPreflight(conteos: {
           conteos.personas +
           (conteos.personas === 1 ? " persona" : " personas") +
           ". Para borrarlo hay que vaciarlo antes desde la planilla."
-        : conteos.marcadas > 0
-          ? "Tiene " +
-            conteos.marcadas +
-            (conteos.marcadas === 1 ? " día marcado" : " días marcados") +
-            " (inactivo, justificado, anulado o con nota). Están en cero horas, pero alguien los escribió a propósito."
-          : null;
+        : null;
 
   return {
     canDelete: blocker === null,
@@ -975,10 +985,10 @@ export async function deleteWeekPreflights(
     db
       .select({
         weekId: hourEntries.weekId,
-        conTiempo: sql<number>`count(*) filter (where ${hourEntries.minutes} > 0 or ${hourEntries.seconds} > 0)::int`,
-        marcadas: sql<number>`count(*) filter (where ${hourEntries.status} <> 'normal' or ${hourEntries.voidedAt} is not null or ${hourEntries.reason} is not null)::int`,
-        minutos: sql<number>`coalesce(sum(${hourEntries.minutes}), 0)::int`,
-        personas: sql<number>`count(distinct ${hourEntries.staffMemberId}) filter (where ${hourEntries.minutes} > 0)::int`,
+        conTiempo: sql<number>`count(*) filter (where (${hourEntries.minutes} > 0 or ${hourEntries.seconds} > 0) and ${VIGENTE})::int`,
+        marcadas: sql<number>`count(*) filter (where not (${VIGENTE}) or ${hourEntries.reason} is not null)::int`,
+        minutos: sql<number>`coalesce(sum(${hourEntries.minutes}) filter (where ${VIGENTE}), 0)::int`,
+        personas: sql<number>`count(distinct ${hourEntries.staffMemberId}) filter (where ${hourEntries.minutes} > 0 and ${VIGENTE})::int`,
       })
       .from(hourEntries)
       .where(inArray(hourEntries.weekId, [...weekIds]))

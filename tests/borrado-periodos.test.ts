@@ -69,10 +69,18 @@ describe("qué período se puede borrar", () => {
     expect(veredicto.blocker).not.toContain("10h");
   });
 
-  it("un día marcado en cero horas también frena: alguien lo escribió a propósito", () => {
+  /**
+   * Poner una casilla en cero desde la planilla no borra la entrada: la anula.
+   * La entrada se queda con sus minutos y una marca de anulación, y los totales
+   * la ignoran. Contarla como horas hacía que el sistema dijera "tiene horas
+   * cargadas" sobre un período que en pantalla estaba vacío.
+   */
+  it("un día anulado no frena: no tiene horas vigentes", () => {
     const veredicto = resolverPreflight({ ...vacio, marcadas: 1 });
 
-    expect(veredicto.canDelete).toBe(false);
-    expect(veredicto.blocker).toContain("1 día marcado");
+    expect(veredicto.canDelete).toBe(true);
+    expect(veredicto.blocker).toBeNull();
+    // Pero se informa, porque se va con el período.
+    expect(veredicto.markedEntries).toBe(1);
   });
 });

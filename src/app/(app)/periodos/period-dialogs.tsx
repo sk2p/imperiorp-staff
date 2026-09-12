@@ -319,6 +319,8 @@ export function DeletePeriodDialog({
   blocker,
   canDelete,
   seededCount,
+  markedCount,
+  cerrado,
 }: {
   readonly weekId: string;
   readonly version: number;
@@ -326,6 +328,9 @@ export function DeletePeriodDialog({
   readonly blocker: string | null;
   readonly canDelete: boolean;
   readonly seededCount: number;
+  /** Días anulados o marcados: no tienen horas, pero se van con el período. */
+  readonly markedCount: number;
+  readonly cerrado: boolean;
 }) {
   return (
     <Dialog
@@ -374,6 +379,26 @@ export function DeletePeriodDialog({
                       <br />
                       Se van con él las <strong>{seededCount}</strong> filas de planilla sembradas
                       en cero. Ninguna tiene horas cargadas.
+                    </>
+                  ) : null}
+                  {markedCount > 0 ? (
+                    <>
+                      <br />
+                      <br />
+                      También {markedCount === 1 ? "hay" : "hay"} <strong>{markedCount}</strong>{" "}
+                      {markedCount === 1 ? "día anulado o marcado" : "días anulados o marcados"} —
+                      una casilla que se puso en cero, un día justificado. No{" "}
+                      {markedCount === 1 ? "suma" : "suman"} horas ni plata, pero{" "}
+                      {markedCount === 1 ? "se va" : "se van"} con el período. Lo que se hizo y se
+                      deshizo queda en la auditoría.
+                    </>
+                  ) : null}
+                  {cerrado ? (
+                    <>
+                      <br />
+                      <br />
+                      <strong>Este período está cerrado.</strong> Su liquidación estaba congelada;
+                      borrarlo la elimina, no la descongela.
                     </>
                   ) : null}
                 </Callout>

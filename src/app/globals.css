@@ -2558,3 +2558,101 @@ a:hover .moneda-en-reposo .moneda-cuerpo {
     animation: none;
   }
 }
+
+/* -------------------------------------------------------------------------- *
+ * El piso
+ *
+ * Una cuadrícula acostada que se aleja hacia el fondo de la pantalla. No es un
+ * degradado más ni una textura plana: es un plano de verdad, girado 78 grados
+ * sobre su eje horizontal y visto en perspectiva, así que las líneas se juntan
+ * a medida que se van. Eso es lo que da la sensación de que la página tiene
+ * hondura y no es un rectángulo negro con cosas encima.
+ *
+ * Vive abajo, apagadísimo y con máscara: aparece del borde inferior hacia
+ * arriba y se desvanece antes de llegar al contenido. No compite con nada.
+ * -------------------------------------------------------------------------- */
+.piso {
+  position: fixed;
+  inset: auto 0 0 0;
+  height: 42vh;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+  perspective: 240px;
+  perspective-origin: 50% 0%;
+  contain: strict;
+}
+
+.piso::before {
+  content: "";
+  position: absolute;
+  inset: -140% -60% -60% -60%;
+  transform: rotateX(77deg);
+  transform-origin: 50% 0%;
+  background-image:
+    linear-gradient(rgb(229 22 44 / 0.26) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(229 22 44 / 0.26) 1px, transparent 1px);
+  background-size:
+    44px 44px,
+    44px 44px;
+  /* Nace de la nada, se ve en el medio y se apaga antes del horizonte. */
+  mask-image: linear-gradient(to bottom, transparent 12%, #000 46%, transparent 86%);
+}
+
+/*
+ * El horizonte: la línea donde el piso se pierde.
+ *
+ * Sin ella la cuadrícula se desvanece en la nada y el efecto se lee como una
+ * textura borrosa. Con una línea tenue arriba, el ojo entiende que hay un plano
+ * que llega hasta ahí.
+ */
+.piso::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgb(229 22 44 / 0.22) 35%,
+    rgb(229 22 44 / 0.22) 65%,
+    transparent
+  );
+}
+
+/* -------------------------------------------------------------------------- *
+ * Grano
+ *
+ * Ruido fino sobre toda la pantalla, al 3,5 %. Es lo que separa una pantalla
+ * "digital limpia" de una que parece tener material: los negros dejan de ser
+ * un color plano y pasan a tener superficie. El ruido se genera en el propio
+ * navegador con un filtro SVG, así que no hay ninguna imagen que descargar.
+ *
+ * Encima de todo el fondo pero debajo del contenido, y sin capturar el mouse.
+ * -------------------------------------------------------------------------- */
+.grano {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='r'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23r)'/%3E%3C/svg%3E");
+  /* Más marcado en los bordes que en el centro: el centro es donde se lee. */
+  mask-image: radial-gradient(120% 90% at 50% 45%, rgb(0 0 0 / 0.35), #000 75%);
+}
+
+/* -------------------------------------------------------------------------- *
+ * Viñeta
+ *
+ * Las esquinas se hunden un poco. Nadie la nota, y sin ella la pantalla se
+ * siente lavada hasta el borde: la viñeta es la que hace que el contenido
+ * parezca iluminado en vez de simplemente estar ahí.
+ * -------------------------------------------------------------------------- */
+html::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  box-shadow: inset 0 0 20vmax 3vmax rgb(0 0 0 / 0.5);
+}
