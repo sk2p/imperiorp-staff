@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition, type DragEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 
 import { Icon } from "@/components/layout/icons";
 import { useCsrfToken, useToast } from "@/components/ui/interactive";
@@ -115,48 +122,127 @@ export function WeekGridTable({
     [token, toast],
   );
 
-  const endDrag = () => {
+  /**
+   * Reordenar la lista.
+   *
+   * Va con eventos de puntero y no con el arrastre nativo del navegador, por
+   * dos razones que se pagan caro:
+   *
+   *   · El arrastre nativo no existe en el teléfono. Con `draggable` la lista
+   *     sencillamente no se podía reordenar desde el celular.
+   *   · Si el árbol se vuelve a dibujar en medio de un arrastre nativo —y esta
+   *     pantalla se refresca sola cada doce segundos—, el navegador se queda
+   *     con una sesión de arrastre abierta que ya no tiene dónde terminar: la
+   *     fila queda gris, el cursor agarrado y la página muerta hasta recargar.
+   *
+   * Con punteros el gesto es nuestro de punta a punta: los escuchas viven en
+   * `window`, así que sobreviven a cualquier redibujado, y siempre hay una
+   * salida —soltar, Escape, o que el sistema cancele el puntero.
+   */
+  const dragRef = useRef<{
+    id: string;
+    groupIndex: number;
+    dropId: string | null;
+    below: boolean;
+  } | null>(null);
+
+  const endDrag = useCallback(() => {
+    dragRef.current = null;
     setDragging(null);
     setDropAt(null);
-  };
+    delete document.body.dataset.arrastrando;
+  }, []);
 
-  /**
-   * Marca la ranura donde caería la fila: arriba o abajo de aquella sobre la
-   * que está el cursor, según de qué mitad se trate. Sin esta señal el gesto
-   * es a ciegas y hay que soltar para ver dónde quedó.
-   */
-  const handleDragOver = (event: DragEvent<HTMLTableRowElement>, targetId: string) => {
+  const startDrag = (event: ReactPointerEvent<HTMLElement>, id: string, groupIndex: number) => {
+    if (!canReorder || event.button !== 0) return;
+    // Frena el desplazamiento por gesto y la selección de texto.
     event.preventDefault();
-    if (!dragging || dragging === targetId) return;
 
-    const rect = event.currentTarget.getBoundingClientRect();
-    const below = event.clientY > rect.top + rect.height / 2;
-
-    setDropAt((current) =>
-      current && current.id === targetId && current.below === below
-        ? current
-        : { id: targetId, below },
-    );
+    dragRef.current = { id, groupIndex, dropId: null, below: false };
+    setDragging(id);
+    setDropAt(null);
+    // Lo lee el refresco automático para no redibujar en medio del gesto.
+    document.body.dataset.arrastrando = "1";
   };
 
-  const handleDrop = (groupIndex: number, targetId: string, below: boolean) => {
-    const group = grid.groups[groupIndex];
-    if (!dragging || !group || dragging === targetId) return endDrag();
+  useEffect(() => {
+    if (!dragging) return;
 
-    const ids = group.rows.map((row) => row.staffMemberId);
-    // Sólo se reordena dentro del mismo grupo: el grupo lo decide el rango.
-    if (!ids.includes(dragging)) return endDrag();
+    const mover = (event: PointerEvent) => {
+      const info = dragRef.current;
+      if (!info) return;
 
-    const rest = ids.filter((id) => id !== dragging);
-    const target = rest.indexOf(targetId);
-    if (target < 0) return endDrag();
+      /**
+       * Con la lista larga hay que poder llegar al principio o al final sin
+       * soltar. Cerca del borde de la ventana, la página acompaña.
+       */
+      const margen = 90;
+      if (event.clientY < margen) globalThis.scrollBy(0, -14);
+      else if (event.clientY > globalThis.innerHeight - margen) globalThis.scrollBy(0, 14);
 
-    rest.splice(below ? target + 1 : target, 0, dragging);
-    endDrag();
+      const elemento = document.elementFromPoint(event.clientX, event.clientY);
+      const fila = elemento?.closest<HTMLElement>("tr[data-fila]");
+      if (!fila) return;
 
-    if (rest.every((id, index) => id === ids[index])) return;
-    run(reorderAction, { staffMemberIds: rest }, "Orden actualizado.");
-  };
+      const destino = fila.dataset.fila;
+      if (!destino || destino === info.id) return;
+
+      const caja = fila.getBoundingClientRect();
+      const below = event.clientY > caja.top + caja.height / 2;
+      if (info.dropId === destino && info.below === below) return;
+
+      info.dropId = destino;
+      info.below = below;
+      setDropAt({ id: destino, below });
+    };
+
+    const soltar = () => {
+      const info = dragRef.current;
+      if (!info) return endDrag();
+
+      const group = grid.groups[info.groupIndex];
+      const destino = info.dropId;
+      const below = info.below;
+      endDrag();
+
+      if (!group || !destino || destino === info.id) return;
+
+      const ids = group.rows.map((row) => row.staffMemberId);
+      // Sólo se reordena dentro del mismo grupo: el grupo lo decide el rango.
+      if (!ids.includes(info.id) || !ids.includes(destino)) return;
+
+      const resto = ids.filter((id) => id !== info.id);
+      const posicion = resto.indexOf(destino);
+      if (posicion < 0) return;
+
+      resto.splice(below ? posicion + 1 : posicion, 0, info.id);
+      if (resto.every((id, index) => id === ids[index])) return;
+
+      run(reorderAction, { staffMemberIds: resto }, "Orden actualizado.");
+    };
+
+    const teclado = (event: KeyboardEvent) => {
+      if (event.key === "Escape") endDrag();
+    };
+
+    globalThis.addEventListener("pointermove", mover);
+    globalThis.addEventListener("pointerup", soltar);
+    globalThis.addEventListener("pointercancel", endDrag);
+    // Si el puntero se va de la ventana, el gesto termina igual.
+    globalThis.addEventListener("blur", endDrag);
+    globalThis.addEventListener("keydown", teclado);
+
+    return () => {
+      globalThis.removeEventListener("pointermove", mover);
+      globalThis.removeEventListener("pointerup", soltar);
+      globalThis.removeEventListener("pointercancel", endDrag);
+      globalThis.removeEventListener("blur", endDrag);
+      globalThis.removeEventListener("keydown", teclado);
+    };
+  }, [dragging, endDrag, grid.groups, run]);
+
+  // Por si el componente se desmonta con un arrastre a medias.
+  useEffect(() => endDrag, [endDrag]);
 
   const columns = 4 + dayLabels.length + (canDelete ? 1 : 0);
 
@@ -228,13 +314,7 @@ export function WeekGridTable({
                   return (
                     <tr
                       key={row.staffMemberId}
-                      draggable={canReorder}
-                      onDragStart={() => setDragging(row.staffMemberId)}
-                      onDragEnd={endDrag}
-                      onDragOver={(event) => handleDragOver(event, row.staffMemberId)}
-                      onDrop={() =>
-                        handleDrop(groupIndex, row.staffMemberId, marker?.below ?? false)
-                      }
+                      data-fila={row.staffMemberId}
                       className={cn(
                         dragging === row.staffMemberId && "row-dragging",
                         marker && (marker.below ? "drop-below" : "drop-above"),
@@ -244,8 +324,14 @@ export function WeekGridTable({
                         <div className="flex items-center gap-2">
                           {canReorder ? (
                             <span
-                              className="text-chalk-700 cursor-grab active:cursor-grabbing"
-                              title="Arrastrá para reordenar"
+                              role="button"
+                              tabIndex={0}
+                              aria-label={"Reordenar a " + row.name}
+                              onPointerDown={(event) =>
+                                startDrag(event, row.staffMemberId, groupIndex)
+                              }
+                              className="agarre text-chalk-700 hover:text-chalk-400 cursor-grab active:cursor-grabbing"
+                              title="Arrastrá desde acá para reordenar"
                             >
                               <svg width="10" height="14" viewBox="0 0 10 14" aria-hidden>
                                 <g fill="currentColor">

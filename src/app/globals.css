@@ -1159,3 +1159,23 @@ body::before {
 .stat-glow {
   text-shadow: 0 0 28px rgb(229 22 44 / 0.35);
 }
+
+/* El agarre para reordenar. `touch-action: none` es lo que permite arrastrar
+   desde el teléfono: sin eso el dedo desplaza la página en vez de mover la
+   fila. `user-select: none` evita que el gesto seleccione el nombre. */
+.agarre {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  padding: 0.25rem 0.125rem;
+  margin: -0.25rem -0.125rem;
+  border-radius: 5px;
+  transition: color 140ms ease;
+}
+
+/* Mientras se mueve una fila, nada de selecciones accidentales en la tabla. */
+body[data-arrastrando] {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grabbing;
+}

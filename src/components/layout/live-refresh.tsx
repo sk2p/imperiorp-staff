@@ -27,6 +27,15 @@ import { useEffect, useRef } from "react";
 const INTERVAL_MS = 12_000;
 
 function isBusy(): boolean {
+  /**
+   * Con un arrastre a medias no se redibuja nada.
+   *
+   * Reemplazar las filas en medio del gesto dejaba la lista gris y la página
+   * trabada: el arrastre quedaba sin dónde terminar. La marca la pone la
+   * planilla al empezar a mover una fila.
+   */
+  if (document.body.dataset.arrastrando) return true;
+
   const active = document.activeElement;
   if (!active || active === document.body) return false;
 
