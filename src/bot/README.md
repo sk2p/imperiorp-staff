@@ -82,8 +82,14 @@ bot: no hay estado en memoria que se pierda.
 
 ### 5. Vincular las cuentas
 
-Cada persona necesita su cuenta de Discord atada a su ficha del staff. Con
-rango ADM o superior:
+Cada persona necesita su cuenta de Discord atada a su ficha del staff.
+
+**El primer vínculo lo hace quien administra el servidor de Discord.** Tiene que
+ser así: antes del primer vínculo nadie tiene rango, así que nadie podría
+vincular a nadie —ni a sí mismo. Una vez que hay un ADM vinculado, ese ADM ya
+puede vincular al resto.
+
+Con rango ADM o superior, o con permiso de administrar el servidor:
 
 ```
 /vincular usuario: @alguien  staff: (buscá por nombre)
@@ -118,4 +124,5 @@ Para que ande, en **Vercel** tienen que estar `DISCORD_TOKEN` y `DISCORD_PAGOS`.
   el panel de administradores.
 - La administración del fichaje —cerrarle el turno a otro, vincular cuentas— es
   de **ADM** para arriba, según el rango de la ficha y no según un rol de
-  Discord.
+  Discord. La única excepción es quien administra el servidor de Discord, que
+  puede hacerlo siempre: sin esa puerta el primer vínculo sería imposible.

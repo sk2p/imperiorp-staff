@@ -7,6 +7,7 @@ import {
   Events,
   GatewayIntentBits,
   MessageFlags,
+  PermissionFlagsBits,
   REST,
   Routes,
   SlashCommandBuilder,
@@ -75,8 +76,35 @@ const client = new Client({
 /** Desde ADM para arriba se considera administración del fichaje. */
 const TIER_ADMIN = RANK_DEFINITIONS.ADM.tier;
 
-function esAdministracion(member: ShiftMember): boolean {
+function esAdministracion(member: ShiftMember | null): boolean {
+  if (!member) return false;
   return isStaffRank(member.rank) && RANK_DEFINITIONS[member.rank].tier >= TIER_ADMIN;
+}
+
+/**
+ * Quién puede administrar el fichaje.
+ *
+ * Normalmente se decide por el RANGO de la ficha, que es la jerarquía real de
+ * Imperio RP y no un rol de Discord que cualquiera puede repartir.
+ *
+ * Pero hay un caso que esa regla sola no cubre: el primer día no hay ninguna
+ * ficha vinculada, así que nadie tendría rango, así que nadie podría vincular a
+ * nadie —ni a sí mismo. Para eso está la segunda puerta: quien administra el
+ * servidor de Discord puede hacer el arranque. No es un agujero, es la única
+ * forma de que el sistema pueda empezar.
+ */
+async function puedeAdministrar(
+  interaction: RepliableInteraction,
+): Promise<{ ok: boolean; member: ShiftMember | null }> {
+  const member = await findMemberByDiscord(interaction.user.id);
+  if (esAdministracion(member)) return { ok: true, member };
+
+  const permisos = interaction.memberPermissions;
+  const esDuenoDelServidor =
+    permisos?.has(PermissionFlagsBits.ManageGuild) === true ||
+    permisos?.has(PermissionFlagsBits.Administrator) === true;
+
+  return { ok: esDuenoDelServidor, member };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -292,13 +320,13 @@ async function panelAdministracion(
   interaction: ButtonInteraction,
   _valor: string | undefined,
 ): Promise<void> {
-  const member = await requerirFicha(interaction);
-  if (!member) return;
-
-  if (!esAdministracion(member)) {
+  const { ok } = await puedeAdministrar(interaction);
+  if (!ok) {
     await responder(
       interaction,
-      errorUi("La administración del fichaje es de **ADM** para arriba."),
+      errorUi(
+        "La administración del fichaje es de **ADM** para arriba, o de quien administre el servidor de Discord.",
+      ),
     );
     return;
   }
@@ -340,11 +368,9 @@ async function accionAdministracion(
   interaction: ButtonInteraction,
   accion: string | undefined,
 ): Promise<void> {
-  const member = await requerirFicha(interaction);
-  if (!member || !esAdministracion(member)) {
-    if (member) {
-      await responder(interaction, errorUi("Necesitás rango **ADM** o superior."));
-    }
+  const { ok } = await puedeAdministrar(interaction);
+  if (!ok) {
+    await responder(interaction, errorUi("Necesitás rango **ADM** o superior."));
     return;
   }
 
@@ -407,8 +433,8 @@ async function accionAdministracion(
 }
 
 async function manejarSelect(interaction: StringSelectMenuInteraction): Promise<void> {
-  const member = await requerirFicha(interaction);
-  if (!member || !esAdministracion(member)) return;
+  const { ok } = await puedeAdministrar(interaction);
+  if (!ok) return;
 
   if (interaction.customId === "fichaje:cerrarsel") {
     const objetivo = interaction.values[0];
@@ -467,8 +493,8 @@ async function manejarSelect(interaction: StringSelectMenuInteraction): Promise<
 }
 
 async function manejarUserSelect(interaction: UserSelectMenuInteraction): Promise<void> {
-  const member = await requerirFicha(interaction);
-  if (!member || !esAdministracion(member)) return;
+  const { ok } = await puedeAdministrar(interaction);
+  if (!ok) return;
 
   const elegido = interaction.values[0];
   if (!elegido) return;
@@ -563,11 +589,14 @@ async function manejarComando(interaction: ChatInputCommandInteraction): Promise
     return;
   }
 
-  const member = await requerirFicha(interaction);
-  if (!member) return;
-
-  if (!esAdministracion(member)) {
-    await responder(interaction, errorUi("Este comando es de **ADM** para arriba."));
+  const { ok } = await puedeAdministrar(interaction);
+  if (!ok) {
+    await responder(
+      interaction,
+      errorUi(
+        "Este comando es de **ADM** para arriba, o de quien administre el servidor de Discord.",
+      ),
+    );
     return;
   }
 
