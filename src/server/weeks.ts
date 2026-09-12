@@ -9,7 +9,13 @@ import {
   type Week,
 } from "@/db/schema";
 import type { ActorContext } from "@/lib/auth/context";
-import { businessRule, concurrency, conflict, notFound } from "@/lib/core/errors";
+import {
+  businessRule,
+  concurrency,
+  conflict,
+  isUniqueViolation,
+  notFound,
+} from "@/lib/core/errors";
 import { formatMoney } from "@/domain/money";
 import {
   buildPeriodCode,
@@ -322,18 +328,37 @@ export async function createWeek(input: CreateWeekInput, actor: ActorContext): P
           "). Elegí fechas que no pisen ningún día de ese período.",
       );
     }
-    const [created] = await tx
-      .insert(weeks)
-      .values({
-        code,
-        label: input.label,
-        startDate: input.startDate,
-        endDate: input.endDate,
-        notes: input.notes,
-        status: "open",
-        createdBy: actor.id,
-      })
-      .returning();
+    let created;
+    try {
+      [created] = await tx
+        .insert(weeks)
+        .values({
+          code,
+          label: input.label,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          notes: input.notes,
+          status: "open",
+          createdBy: actor.id,
+        })
+        .returning();
+    } catch (error) {
+      /**
+       * Último cerrojo.
+       *
+       * El chequeo de arriba mira las FECHAS; el índice único mira el CÓDIGO.
+       * Con la restricción que ata uno a otro no deberían poder discrepar, pero
+       * si alguna vez discrepan, esto convierte un error incomprensible en algo
+       * que se entiende y se puede reportar.
+       */
+      if (isUniqueViolation(error)) {
+        throw conflict(
+          "Ya existe un período con esas fechas. Si no aparece en la lista, avisale a pit o mati: " +
+            "quedó algo inconsistente en la base.",
+        );
+      }
+      throw error;
+    }
     if (!created) throw new Error("No se pudo crear el período.");
     /**
      * Sembrar el período con los miembros activos y cero horas hace que nadie

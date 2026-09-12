@@ -312,6 +312,24 @@ export const weeks = pgTable(
     index("weeks_status_idx").on(table.status),
     index("weeks_start_date_idx").on(table.startDate),
     check("weeks_date_order", sql`${table.startDate} <= ${table.endDate}`),
+    /**
+     * El código SIEMPRE se deriva de las fechas.
+     *
+     * Es un dato calculado que igual se guarda, y un dato calculado que se
+     * guarda es un dato que puede quedar desincronizado. Pasó: una fila terminó
+     * con el código de una semana y las fechas de otra. El daño no fue visible
+     * —el código sólo se muestra— sino indirecto: la comprobación de solapes
+     * mira las FECHAS, así que no encontraba conflicto, y la creación del
+     * período siguiente moría contra el índice único del CÓDIGO con un error
+     * incomprensible.
+     *
+     * Con esto, ese estado no se puede escribir: ni desde el código, ni desde
+     * una consulta a mano en la consola de la base.
+     */
+    check(
+      "weeks_code_matches_dates",
+      sql`${table.code} = ${table.startDate}::text || '_' || ${table.endDate}::text`,
+    ),
     check("weeks_status_values", sql`${table.status} in ('open', 'closed')`),
     // Un período cerrado tiene siempre sus totales congelados: sin estados a medias.
     check(
