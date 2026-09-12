@@ -114,6 +114,18 @@ export function OpenPeriodCard({
         </div>
       </div>
 
+      {/* Las notas del período, si alguien escribió alguna. Se muestran acá y
+          no escondidas atrás de un ícono: se escriben justamente para que las
+          lea quien abra esta pantalla. */}
+      {week.notes ? (
+        <div className="border-t border-white/[0.07] px-4 py-3">
+          <p className="mb-0 overline">Notas</p>
+          <p className="text-chalk-400 mt-1 text-xs leading-relaxed whitespace-pre-line">
+            {week.notes}
+          </p>
+        </div>
+      ) : null}
+
       <PeriodProgress startDate={week.startDate} endDate={week.endDate} />
 
       <PeriodInside breakdown={breakdown} memberCount={week.memberCount} />

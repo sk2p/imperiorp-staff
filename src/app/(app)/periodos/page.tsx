@@ -184,6 +184,15 @@ export default async function PeriodsPage({
                           {week.label ? (
                             <span className="text-chalk-600 ml-2 text-xs">{week.label}</span>
                           ) : null}
+                          {week.notes ? (
+                            <span
+                              className="text-chalk-700 ml-1.5 text-xs"
+                              title={week.notes}
+                              aria-label="Tiene notas"
+                            >
+                              ✎
+                            </span>
+                          ) : null}
                           {week.reopenCount > 0 ? (
                             <Badge tone="amber" className="ml-2">
                               Reabierto ×{week.reopenCount}
