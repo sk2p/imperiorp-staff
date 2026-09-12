@@ -1,0 +1,2 @@
+DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'weekly_staff_records' AND column_name = 'ic_minutes') AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'weekly_staff_records' AND column_name = 'ic_reports') THEN ALTER TABLE "weekly_staff_records" RENAME COLUMN "ic_minutes" TO "ic_reports"; END IF; END $$;--> statement-breakpoint
+ALTER TABLE "weekly_staff_records" ADD COLUMN IF NOT EXISTS "ic_reports" integer DEFAULT 0 NOT NULL;

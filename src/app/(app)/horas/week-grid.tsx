@@ -31,6 +31,7 @@ import {
   reorderAction,
   setCellAction,
   setDayStatusAction,
+  setIcReportsAction,
 } from "@/server/actions";
 
 /**
@@ -244,7 +245,12 @@ export function WeekGridTable({
   // Por si el componente se desmonta con un arrastre a medias.
   useEffect(() => endDrag, [endDrag]);
 
-  const columns = 4 + dayLabels.length + (canDelete ? 1 : 0);
+  const columns = 5 + dayLabels.length + (canDelete ? 1 : 0);
+
+  // Los reportes son de Mid para arriba: el total no cuenta al soporte.
+  const totalReportesIc = grid.groups
+    .filter((group) => group.group !== "LOW_STAFF")
+    .reduce((suma, group) => suma + group.rows.reduce((s, row) => s + row.icReports, 0), 0);
 
   return (
     <div className="relative">
@@ -269,6 +275,7 @@ export function WeekGridTable({
               ))}
               <th className="text-right">Total</th>
               <th className="text-right">Paga semanal</th>
+              <th className="text-center">Reportes IC</th>
               {canDelete ? <th className="text-center">Quitar</th> : null}
             </tr>
           </thead>
@@ -433,6 +440,30 @@ export function WeekGridTable({
                         {formatMoney(row.amount)}
                       </td>
 
+                      {/* Los reportes IC se piden de Mid Staff para arriba; al
+                          soporte la casilla ni se le ofrece. */}
+                      <td className="text-center">
+                        {group.group === "LOW_STAFF" ? (
+                          <span className="text-chalk-700">—</span>
+                        ) : (
+                          <IcReportsCell
+                            value={row.icReports}
+                            editable={canEdit}
+                            onSave={(reports) =>
+                              run(
+                                setIcReportsAction,
+                                {
+                                  weekId: grid.weekId,
+                                  staffMemberId: row.staffMemberId,
+                                  reports: String(reports),
+                                },
+                                "Reportes IC guardados.",
+                              )
+                            }
+                          />
+                        )}
+                      </td>
+
                       {canDelete ? (
                         <td className="text-center">
                           <button
@@ -473,6 +504,9 @@ export function WeekGridTable({
               </td>
               <td className="tnum text-imperial-400 px-3.5 py-3 text-right text-sm font-bold">
                 {formatMoney(grid.totalAmount)}
+              </td>
+              <td className="tnum text-chalk-50 px-3.5 py-3 text-center text-sm font-bold">
+                {totalReportesIc}
               </td>
               {canDelete ? <td /> : null}
             </tr>
@@ -729,5 +763,79 @@ function HourCell({
         {cuenta ? formatMinutesClock(minutes) : definition.short.slice(0, 4)}
       </button>
     </td>
+  );
+}
+
+/**
+ * La casilla de reportes IC.
+ *
+ * Es una cuenta, no un tiempo, así que se escribe un número pelado y no un
+ * `2:30`. Se guarda al salir del campo, igual que las horas: nadie tiene que
+ * acordarse de apretar nada.
+ */
+function IcReportsCell({
+  value,
+  editable,
+  onSave,
+}: {
+  readonly value: number;
+  readonly editable: boolean;
+  readonly onSave: (reports: number) => void;
+}) {
+  const [editando, setEditando] = useState(false);
+  const [texto, setTexto] = useState(String(value));
+
+  if (!editable) {
+    return <span className={cn("tnum", value === 0 && "text-chalk-700")}>{value}</span>;
+  }
+
+  const guardar = () => {
+    setEditando(false);
+    const limpio = texto.trim();
+    const numero = limpio === "" ? 0 : Number(limpio);
+
+    if (!Number.isInteger(numero) || numero < 0) {
+      setTexto(String(value));
+      return;
+    }
+    if (numero !== value) onSave(numero);
+  };
+
+  if (editando) {
+    return (
+      <input
+        autoFocus
+        value={texto}
+        onChange={(event) => setTexto(event.target.value)}
+        onBlur={guardar}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+          if (event.key === "Escape") {
+            setTexto(String(value));
+            setEditando(false);
+          }
+        }}
+        inputMode="numeric"
+        aria-label="Reportes IC"
+        className="cell tnum w-14 text-center"
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setTexto(String(value));
+        setEditando(true);
+      }}
+      className={cn(
+        "cell tnum w-14 text-center",
+        value === 0 ? "text-chalk-700" : "text-chalk-100",
+      )}
+      title="Click para cargar los reportes IC del período"
+    >
+      {value}
+    </button>
   );
 }

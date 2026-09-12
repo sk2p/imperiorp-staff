@@ -62,8 +62,8 @@ export interface GridRow {
   readonly days: readonly GridCell[];
   readonly totalMinutes: number;
   readonly amount: number;
-  /** Horas de personaje del período. Sólo se usan de Mid Staff para arriba. */
-  readonly icMinutes: number;
+  /** Reportes IC atendidos en el período. Sólo de Mid Staff para arriba. */
+  readonly icReports: number;
 }
 
 export interface GridGroup {
@@ -107,7 +107,7 @@ export async function getWeekGrid(week: Week): Promise<WeekGrid> {
         hourlyRate: weeklyStaffRecords.hourlyRateSnapshot,
         totalMinutes: weeklyStaffRecords.totalMinutes,
         amount: weeklyStaffRecords.calculatedAmount,
-        icMinutes: weeklyStaffRecords.icMinutes,
+        icReports: weeklyStaffRecords.icReports,
         displayOrder: staffMembers.displayOrder,
         version: staffMembers.version,
         rankColor: rankRates.color,
@@ -150,7 +150,7 @@ export async function getWeekGrid(week: Week): Promise<WeekGrid> {
       version: record.version,
       totalMinutes: record.totalMinutes,
       amount: record.amount,
-      icMinutes: record.icMinutes,
+      icReports: record.icReports,
       days: days.map((workDate) => {
         const cell = perStaff?.get(workDate);
         return {
@@ -710,38 +710,37 @@ export async function joinStaffToOpenWeek(
 }
 
 /* -------------------------------------------------------------------------- */
-/* Horas de personaje (IC)                                                    */
+/* Reportes IC                                                                */
 /* -------------------------------------------------------------------------- */
 
 /**
- * Horas IC del período, de Mid Staff para arriba.
+ * Reportes IC atendidos en el período, de Mid Staff para arriba.
  *
- * Es un control aparte de la planilla de staff: sirve para ver quién además de
- * moderar está jugando en el servidor. NO SE PAGA, así que se guarda como un
- * número suelto del período y no toca la liquidación ni pasa por las entradas
- * diarias —si entrara por ahí, el próximo recálculo la sumaría a lo que hay
- * que pagar.
+ * Es una CUENTA y no un tiempo: mide cuántos reportes tomó cada uno, aparte de
+ * las horas. NO SE PAGA, así que se guarda como un número del período y no pasa
+ * por las entradas diarias —si entrara por ahí, el próximo recálculo lo sumaría
+ * a lo que hay que pagar.
  *
  * Sólo de Mid para arriba porque es lo que se pide a partir de ese rango; al
  * soporte no se le exige.
  */
 export const IC_GROUPS: readonly StaffGroup[] = ["HIGH_STAFF", "MID_STAFF"];
 
-/** Un día entero es el techo razonable para un total semanal por persona. */
-const MAX_IC_MINUTES = 168 * 60;
+/** Un tope sensato: más que esto en una semana es un error de tipeo. */
+const MAX_IC_REPORTS = 9999;
 
-export async function setIcMinutes(
-  input: { readonly weekId: string; readonly staffMemberId: string; readonly minutes: number },
+export async function setIcReports(
+  input: { readonly weekId: string; readonly staffMemberId: string; readonly reports: number },
   actor: ActorContext,
 ): Promise<void> {
-  if (!Number.isInteger(input.minutes) || input.minutes < 0) {
-    throw validation("Las horas IC deben ser un número entero de minutos.", {
-      minutes: ["Valor inválido."],
+  if (!Number.isInteger(input.reports) || input.reports < 0) {
+    throw validation("Los reportes IC se cuentan en números enteros.", {
+      reports: ["Valor inválido."],
     });
   }
-  if (input.minutes > MAX_IC_MINUTES) {
-    throw validation("Ese total supera las horas que tiene una semana.", {
-      minutes: ["Cargaste " + formatMinutes(input.minutes) + "."],
+  if (input.reports > MAX_IC_REPORTS) {
+    throw validation("Ese número de reportes no parece real.", {
+      reports: ["Cargaste " + input.reports + "."],
     });
   }
 
@@ -762,18 +761,18 @@ export async function setIcMinutes(
 
     if (!registro) throw notFound("La liquidación de ese miembro en este período");
     if (registro.frozenAt) {
-      throw businessRule("Este período ya está congelado: no se pueden cambiar las horas IC.");
+      throw businessRule("Este período ya está congelado: no se pueden cambiar los reportes IC.");
     }
     if (!IC_GROUPS.includes(groupForCategory(registro.categorySnapshot))) {
-      throw businessRule("Las horas IC se registran de Mid Staff para arriba.");
+      throw businessRule("Los reportes IC se registran de Mid Staff para arriba.");
     }
-    if (registro.icMinutes === input.minutes) return;
+    if (registro.icReports === input.reports) return;
 
-    const anterior = registro.icMinutes;
+    const anterior = registro.icReports;
 
     await tx
       .update(weeklyStaffRecords)
-      .set({ icMinutes: input.minutes, version: registro.version + 1, updatedAt: new Date() })
+      .set({ icReports: input.reports, version: registro.version + 1, updatedAt: new Date() })
       .where(eq(weeklyStaffRecords.id, registro.id));
 
     await appendAuditLog(tx, {
@@ -782,16 +781,16 @@ export async function setIcMinutes(
       entity: "weekly_staff_records",
       entityId: registro.id,
       summary:
-        "Horas IC de " +
+        "Reportes IC de " +
         registro.staffNameSnapshot +
         " en " +
         week.code +
         ": " +
-        formatMinutes(anterior) +
+        anterior +
         " → " +
-        formatMinutes(input.minutes),
-      before: { horasIC: anterior },
-      after: { horasIC: input.minutes },
+        input.reports,
+      before: { reportesIC: anterior },
+      after: { reportesIC: input.reports },
       metadata: { weekId: input.weekId, staffMemberId: input.staffMemberId },
     });
   });

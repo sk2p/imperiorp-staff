@@ -424,16 +424,16 @@ export const weeklyStaffRecords = pgTable(
     entryCount: integer("entry_count").notNull().default(0),
 
     /**
-     * Horas de personaje del período, de Mid Staff para arriba.
+     * Reportes IC atendidos en el período, de Mid Staff para arriba.
      *
-     * NO SE PAGAN: es un control aparte, para ver quién está jugando en el
-     * servidor además de moderarlo. Por eso vive acá como un número suelto y no
-     * toca `calculated_amount` ni pasa por `hour_entries`: si entrara por ahí,
-     * el próximo recálculo la sumaría a la liquidación.
+     * Es una CUENTA, no un tiempo, y NO SE PAGA: mide cuántos reportes tomó
+     * cada uno, aparte de las horas. Por eso vive acá como un número del
+     * período y no toca `calculated_amount` ni pasa por `hour_entries`: si
+     * entrara por ahí, el próximo recálculo lo sumaría a la liquidación.
      *
-     * Se congela con el resto del período: el recálculo semanal no la pisa.
+     * Se congela con el resto del período: el recálculo semanal no lo pisa.
      */
-    icMinutes: integer("ic_minutes").notNull().default(0),
+    icReports: integer("ic_reports").notNull().default(0),
 
     /** Una vez congelado, ningún camino normal del código puede modificarlo. */
     frozenAt: timestamp("frozen_at", { withTimezone: true }),

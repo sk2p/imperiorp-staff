@@ -129,17 +129,17 @@ export type ResetWeekInput = z.infer<typeof resetWeekSchema>;
 export const GROUP_RATE_KEYS = STAFF_GROUPS;
 
 /**
- * Horas IC del período: un total por persona, de Mid Staff para arriba.
+ * Reportes IC del período: una cuenta por persona, de Mid Staff para arriba.
  * No se pagan, así que no llevan ni tarifa ni motivo: es un control.
  */
-export const setIcMinutesSchema = z.object({
+export const setIcReportsSchema = z.object({
   weekId: uuidSchema,
   staffMemberId: uuidSchema,
-  minutes: z.coerce
+  reports: z.coerce
     .number()
-    .int("Las horas IC deben ser un número entero de minutos.")
+    .int("Los reportes IC se cuentan en números enteros.")
     .min(0, "No puede ser negativo.")
-    .max(168 * 60, "Ese total supera las horas que tiene una semana."),
+    .max(9999, "Ese número de reportes no parece real."),
 });
 
-export type SetIcMinutesInput = z.infer<typeof setIcMinutesSchema>;
+export type SetIcReportsInput = z.infer<typeof setIcReportsSchema>;
