@@ -24,7 +24,7 @@ import {
 } from "discord.js";
 
 import { closeDatabase } from "@/db";
-import { isAppError } from "@/lib/core/errors";
+import { isAppError, isTransientDatabaseError } from "@/lib/core/errors";
 import { logger } from "@/lib/core/logger";
 import { formatDuration, localDate } from "@/domain/clock";
 import { GROUP_DEFINITIONS, isStaffGroup, type StaffGroup } from "@/domain/groups";
@@ -120,17 +120,25 @@ async function responder(
   contenedor: ContainerBuilder,
   extra: readonly ActionRowBuilder<MessageActionRowComponentBuilder>[] = [],
 ): Promise<void> {
-  const payload = {
-    components: [contenedor, ...extra],
-    flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
-  };
+  const components = [contenedor, ...extra];
 
+  /**
+   * La bandera de Components V2 va también al editar.
+   *
+   * Sin ella, Discord interpreta el mensaje con el formato viejo y rechaza un
+   * contenedor: como toda respuesta pasa primero por `deferReply`, ésta es la
+   * rama que se usa siempre. La de `reply` queda como respaldo para el caso en
+   * que algo conteste sin haber diferido.
+   */
   if (interaction.deferred || interaction.replied) {
-    await interaction.editReply({ components: payload.components });
+    await interaction.editReply({ components, flags: MessageFlags.IsComponentsV2 });
     return;
   }
 
-  await interaction.reply(payload);
+  await interaction.reply({
+    components,
+    flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+  });
 }
 
 /** Manda un contenedor a un canal por id, si está configurado. */
@@ -780,6 +788,26 @@ async function manejarComando(interaction: ChatInputCommandInteraction): Promise
 
 client.on(Events.InteractionCreate, async (interaction: Interaction) => {
   try {
+    /**
+     * Discord da TRES SEGUNDOS para contestar, y después muestra "la
+     * aplicación no responde" sin importar lo que pase después. Una base
+     * dormida tarda más que eso en despertar.
+     *
+     * Diferir la respuesta compra quince minutos y se ve como "pensando…".
+     * Hay que hacerlo antes de tocar la base, no después: si la consulta
+     * tarda, ya es tarde para avisar que se está pensando.
+     */
+    if (
+      (interaction.isChatInputCommand() ||
+        interaction.isButton() ||
+        interaction.isStringSelectMenu() ||
+        interaction.isUserSelectMenu()) &&
+      !interaction.deferred &&
+      !interaction.replied
+    ) {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    }
+
     if (interaction.isChatInputCommand()) return void (await manejarComando(interaction));
     if (interaction.isButton()) return void (await manejarBoton(interaction));
     if (interaction.isStringSelectMenu()) return void (await manejarSelect(interaction));
@@ -800,12 +828,24 @@ client.on(Events.InteractionCreate, async (interaction: Interaction) => {
      * usuario no sabe si fichó o no. Los errores de dominio llevan mensaje
      * propio; el resto sale genérico y queda completo en el log.
      */
-    logger.error("Error atendiendo una interacción", { error });
+    /**
+     * Un corte de conexión no es un error del programa. El plan gratuito de la
+     * base la duerme cuando nadie la usa, y quien ficha a las cuatro de la
+     * mañana suele ser el que la despierta. Decirle "algo falló" por eso lo
+     * deja sin saber si su entrada quedó registrada; decirle que reintente es
+     * exacto, porque la transacción se deshizo entera.
+     */
+    const pasajero = isTransientDatabaseError(error);
+
+    if (pasajero) logger.warn("La base no respondió durante una interacción");
+    else logger.error("Error atendiendo una interacción", { error });
 
     if (interaction.isRepliable()) {
-      const mensaje = isAppError(error)
-        ? error.message
-        : "Algo falló de este lado. Probá de nuevo; si sigue, avisale a pit o mati.";
+      const mensaje = pasajero
+        ? "La base tardó en responder y no se guardó nada. Probá de nuevo en unos segundos."
+        : isAppError(error)
+          ? error.message
+          : "Algo falló de este lado. Probá de nuevo; si sigue, avisale a pit o mati.";
 
       await responder(interaction, errorUi(mensaje)).catch(() => undefined);
     }

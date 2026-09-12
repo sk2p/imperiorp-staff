@@ -6,6 +6,7 @@ import path from "node:path";
 import pg from "pg";
 
 import { getEnv } from "@/lib/core/env";
+import { isTransientDatabaseError } from "@/lib/core/errors";
 import { logger } from "@/lib/core/logger";
 import * as schema from "./schema";
 
@@ -184,7 +185,38 @@ export async function withTransaction<T>(
   fn: (tx: Transaction) => Promise<T>,
   options: TransactionOptions = {},
 ): Promise<T> {
-  return db.transaction(fn, options.isolation ? { isolationLevel: options.isolation } : undefined);
+  /**
+   * Un reintento cuando la conexión se cortó, no cuando falló la operación.
+   *
+   * El plan gratuito de Neon duerme la base cuando nadie la usa, y la primera
+   * consulta después de un rato puede encontrarse la conexión muerta mientras
+   * el servidor despierta. Sin esto, a alguien del staff le aparecía un error
+   * inesperado con un código de soporte por cargar dos horas un martes.
+   *
+   * Reintentar es seguro justamente porque es una TRANSACCIÓN: si la conexión
+   * se corta, PostgreSQL la deshace entera. No hay forma de que una parte haya
+   * quedado escrita y el reintento la duplique.
+   */
+  try {
+    return await db.transaction(
+      fn,
+      options.isolation ? { isolationLevel: options.isolation } : undefined,
+    );
+  } catch (error) {
+    if (!isTransientDatabaseError(error)) throw error;
+
+    logger.warn("La base no respondió; reintentando una vez", {
+      motivo: error instanceof Error ? error.message.slice(0, 120) : String(error),
+    });
+
+    // Medio segundo: lo que tarda Neon en levantar el servidor dormido.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    return db.transaction(
+      fn,
+      options.isolation ? { isolationLevel: options.isolation } : undefined,
+    );
+  }
 }
 
 /** Código de PostgreSQL para fallo de serialización (colisión de concurrencia). */

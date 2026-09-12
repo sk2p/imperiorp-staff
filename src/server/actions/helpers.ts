@@ -4,7 +4,12 @@ import type { z } from "zod";
 
 import { requireAuth, requirePermission, type AuthContext } from "@/lib/auth/context";
 import { assertCsrfToken, CSRF_FIELD } from "@/lib/auth/csrf";
-import { isAppError, serializeError, type ErrorCode } from "@/lib/core/errors";
+import {
+  isAppError,
+  isTransientDatabaseError,
+  serializeError,
+  type ErrorCode,
+} from "@/lib/core/errors";
 import { logger, newTraceId } from "@/lib/core/logger";
 import type { Permission } from "@/domain/permissions";
 import { recordSecurityEvent } from "@/server/security-events";
@@ -137,6 +142,22 @@ export async function runAction<TSchema extends z.ZodType, TResult>(
         code: serialized.code,
         ...(serialized.details ? { fieldErrors: serialized.details } : {}),
         ...(serialized.traceId ? { traceId } : {}),
+      };
+    }
+
+    /**
+     * Un corte de conexión no es un error del programa, y decirle a alguien
+     * "error inesperado, guardá este código" por algo que se arregla apretando
+     * de nuevo es asustarlo al pedo. La transacción se deshizo entera, así que
+     * se puede afirmar que no quedó nada a medias.
+     */
+    if (isTransientDatabaseError(error)) {
+      logger.warn("La base no respondió durante una acción", { traceId });
+      return {
+        status: "error",
+        message:
+          "La base tardó en responder y no se guardó nada. Probá de nuevo: suele andar al segundo intento.",
+        code: "INTERNAL",
       };
     }
 

@@ -6,6 +6,8 @@ import {
   conflict,
   internal,
   isAppError,
+  isTransientDatabaseError,
+  pgErrorCode,
   rateLimited,
   serializeError,
   unauthenticated,
@@ -116,5 +118,61 @@ describe("comportamiento de los errores tipados", () => {
     expect(isAppError(new Error("x"))).toBe(false);
     expect(isAppError("x")).toBe(false);
     expect(isAppError(null)).toBe(false);
+  });
+});
+
+describe("errores pasajeros de la base", () => {
+  it("reconoce los códigos de PostgreSQL de conexión caída", () => {
+    for (const code of ["08000", "08003", "08006", "57P01", "57P03"]) {
+      expect(isTransientDatabaseError({ code })).toBe(true);
+    }
+  });
+
+  it("reconoce los errores de red de Node", () => {
+    for (const code of ["ECONNRESET", "ETIMEDOUT", "EPIPE", "ECONNREFUSED"]) {
+      expect(isTransientDatabaseError({ code })).toBe(true);
+    }
+  });
+
+  it("los encuentra aunque vengan envueltos por el driver", () => {
+    // Drizzle y PGlite envuelven el error original en `cause`.
+    expect(isTransientDatabaseError({ cause: { code: "ECONNRESET" } })).toBe(true);
+    expect(isTransientDatabaseError({ cause: { cause: { code: "08006" } } })).toBe(true);
+  });
+
+  it("reconoce los mensajes típicos de pg cuando no hay código", () => {
+    expect(isTransientDatabaseError(new Error("Connection terminated unexpectedly"))).toBe(true);
+    expect(
+      isTransientDatabaseError(new Error("timeout exceeded when trying to connect")),
+    ).toBe(true);
+  });
+
+  it("NO confunde un error de verdad con uno pasajero", () => {
+    // Éstos son bugs o violaciones de reglas: reintentarlos falla igual, y
+    // tratarlos como pasajeros escondería el problema real.
+    expect(isTransientDatabaseError({ code: "23505" })).toBe(false); // índice único
+    expect(isTransientDatabaseError({ code: "42703" })).toBe(false); // columna inexistente
+    expect(isTransientDatabaseError({ code: "40001" })).toBe(false); // serialización
+    expect(isTransientDatabaseError(new Error("algo salió mal"))).toBe(false);
+    expect(isTransientDatabaseError(null)).toBe(false);
+    expect(isTransientDatabaseError(undefined)).toBe(false);
+  });
+});
+
+describe("el código SQLSTATE, esté donde esté", () => {
+  it("lo encuentra arriba de todo y envuelto", () => {
+    expect(pgErrorCode({ code: "23505" })).toBe("23505");
+    expect(pgErrorCode({ cause: { code: "23505" } })).toBe("23505");
+    expect(pgErrorCode({ cause: { cause: { code: "42703" } } })).toBe("42703");
+  });
+
+  it("ignora lo que no tenga forma de SQLSTATE", () => {
+    // Un `code` de Node como ECONNRESET no es un SQLSTATE: cinco caracteres
+    // alfanuméricos en mayúscula. Confundirlos haría que un error de red se
+    // tratara como un error de PostgreSQL.
+    expect(pgErrorCode({ code: "ECONNRESET" })).toBe(null);
+    expect(pgErrorCode({ code: 23505 })).toBe(null);
+    expect(pgErrorCode({})).toBe(null);
+    expect(pgErrorCode(null)).toBe(null);
   });
 });

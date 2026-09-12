@@ -189,3 +189,54 @@ export function isUniqueViolation(error: unknown, constraintHint?: string): bool
   );
   return texto.includes(constraintHint);
 }
+
+/**
+ * Un problema pasajero de conexión con la base, no un error del programa.
+ *
+ * El plan gratuito de Neon duerme la base cuando nadie la usa. La primera
+ * consulta después de un rato la despierta, y mientras tanto la conexión puede
+ * cortarse o agotar su tiempo. No hay nada roto: hay que volver a intentar.
+ *
+ * Se reconocen tanto los códigos de PostgreSQL para caída de conexión como los
+ * de red de Node, porque según dónde se corte llega uno u otro.
+ */
+const TRANSITORIOS = new Set([
+  "08000", // connection_exception
+  "08003", // connection_does_not_exist
+  "08006", // connection_failure
+  "08001", // sqlclient_unable_to_establish_sqlconnection
+  "08004", // sqlserver_rejected_establishment_of_sqlconnection
+  "57P01", // admin_shutdown
+  "57P02", // crash_shutdown
+  "57P03", // cannot_connect_now: justamente, la base arrancando
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "EPIPE",
+  "ENOTFOUND",
+]);
+
+const FRASES_TRANSITORIAS = [
+  "connection terminated",
+  "timeout exceeded when trying to connect",
+  "connection ended unexpectedly",
+  "server closed the connection",
+  "terminating connection",
+];
+
+export function isTransientDatabaseError(error: unknown): boolean {
+  const codigo = pgErrorCode(error);
+  if (codigo && TRANSITORIOS.has(codigo)) return true;
+
+  // Los errores de red de Node traen el código en `code` pero no con forma
+  // SQLSTATE, así que `pgErrorCode` los descarta: se miran aparte.
+  let actual: unknown = error;
+  for (let nivel = 0; nivel < 4 && actual !== null && typeof actual === "object"; nivel += 1) {
+    const suelto = (actual as { code?: unknown }).code;
+    if (typeof suelto === "string" && TRANSITORIOS.has(suelto)) return true;
+    actual = (actual as { cause?: unknown }).cause;
+  }
+
+  const mensaje = error instanceof Error ? error.message.toLowerCase() : "";
+  return FRASES_TRANSITORIAS.some((frase) => mensaje.includes(frase));
+}
