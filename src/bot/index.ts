@@ -43,6 +43,7 @@ import {
 } from "@/server/shifts";
 import { notifyPayment } from "@/server/discord-notify";
 import { COLOR, GROUP_COLOR, botConfig, groupChannels } from "./config";
+import { revisarEmojis } from "./emojis";
 import { startScheduler } from "./tasks";
 import {
   aviso,
@@ -753,6 +754,25 @@ client.on(Events.InteractionCreate, async (interaction: Interaction) => {
 
 client.once(Events.ClientReady, async (listo) => {
   logger.info("Bot de fichajes conectado", { usuario: listo.user.tag, dia: localDate() });
+
+  /**
+   * Un emoji mal configurado no rompe nada, pero Discord muestra el texto
+   * crudo `<:NOMBRE:123>` y queda feo sin que nadie entienda por qué. Sólo
+   * pasa al cambiar la configuración, así que se avisa al arrancar.
+   */
+  const emojis = revisarEmojis((id) => {
+    const encontrado = listo.emojis.cache.get(id);
+    return encontrado ? { animated: encontrado.animated === true } : null;
+  });
+
+  if (emojis.rotos.length > 0) {
+    logger.warn("Hay emojis personalizados que el bot no puede usar", {
+      rotos: emojis.rotos.map((r) => r.key + ": " + r.motivo),
+    });
+  } else if (emojis.ok.length > 0) {
+    logger.info("Emojis personalizados verificados", { cantidad: emojis.ok.length });
+  }
+
   startScheduler(client, publicar);
 });
 

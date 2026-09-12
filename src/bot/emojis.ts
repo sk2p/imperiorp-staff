@@ -89,3 +89,52 @@ export function emojisSinPersonalizar(): readonly EmojiKey[] {
     (key) => !process.env["EMOJI_" + key]?.trim(),
   );
 }
+
+/**
+ * Revisa que los emojis personalizados existan y que el bot pueda usarlos.
+ *
+ * Un emoji mal configurado no rompe nada: Discord muestra el texto crudo
+ * `<:NOMBRE:123>` y queda feo sin que nadie entienda por qué. Como sólo pasa al
+ * cambiar la configuración, conviene enterarse al arrancar y no por una captura
+ * de alguien del staff.
+ *
+ * Las tres causas posibles son: el id está mal, el bot no está en el servidor
+ * que tiene ese emoji, o el emoji es animado y falta la `a` en `<a:`.
+ */
+export function revisarEmojis(existe: (id: string) => { animated: boolean } | null): {
+  readonly ok: readonly EmojiKey[];
+  readonly rotos: readonly { key: EmojiKey; motivo: string }[];
+} {
+  const ok: EmojiKey[] = [];
+  const rotos: { key: EmojiKey; motivo: string }[] = [];
+
+  for (const key of Object.keys(EMOJI_DEFAULTS) as EmojiKey[]) {
+    const crudo = process.env["EMOJI_" + key]?.trim();
+    if (!crudo || crudo.length === 0) continue;
+
+    const analizado = parseEmoji(crudo);
+    if (!analizado?.id) {
+      // Es un emoji común de Unicode: no hay nada que verificar.
+      ok.push(key);
+      continue;
+    }
+
+    const encontrado = existe(analizado.id);
+    if (!encontrado) {
+      rotos.push({
+        key,
+        motivo: "no existe o el bot no está en el servidor que lo tiene",
+      });
+      continue;
+    }
+
+    if (encontrado.animated && !analizado.animated) {
+      rotos.push({ key, motivo: "es animado: el código tiene que empezar con <a: y no con <:" });
+      continue;
+    }
+
+    ok.push(key);
+  }
+
+  return { ok, rotos };
+}
