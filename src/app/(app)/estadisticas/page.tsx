@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 import { Icon } from "@/components/layout/icons";
-import { BarChart, DistributionBars, LineChart } from "@/components/ui/charts";
+import { BarChart, DistributionBars, LineChart, RankingList } from "@/components/ui/charts";
 import { WeekSelector } from "@/components/ui/filters";
 import { Card, CardHeader, EmptyState, PageHeader, Stat } from "@/components/ui/primitives";
 import { formatMoney, formatMoneyCompact } from "@/domain/money";
@@ -221,20 +221,15 @@ export default async function StatsPage({
                 description="Ranking del período seleccionado."
               />
               <div className="p-4">
-                {topWeek.length === 0 ? (
-                  <p className="text-chalk-600 py-8 text-center text-xs">
-                    Sin horas cargadas en este período.
-                  </p>
-                ) : (
-                  <DistributionBars
-                    format="minutes"
-                    data={topWeek.map((member) => ({
-                      label: member.name,
-                      sublabel: member.rank,
-                      value: member.totalMinutes,
-                    }))}
-                  />
-                )}
+                <RankingList
+                  format="minutes"
+                  emptyLabel="Sin horas cargadas en este período."
+                  data={topWeek.map((member) => ({
+                    label: member.name,
+                    sublabel: member.rank,
+                    value: member.totalMinutes,
+                  }))}
+                />
               </div>
             </Card>
 
@@ -244,13 +239,12 @@ export default async function StatsPage({
                 description="Acumulado de todos los períodos."
               />
               <div className="p-4">
-                <DistributionBars
+                <RankingList
                   format="minutes"
                   data={topAll.map((member) => ({
                     label: member.name,
                     sublabel: member.weekCount + " períodos",
                     value: member.totalMinutes,
-                    tone: "bg-sky-400",
                   }))}
                 />
               </div>

@@ -486,3 +486,80 @@ export function ProgressMeter({
     </div>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Ranking                                                                    */
+/* -------------------------------------------------------------------------- */
+
+export interface RankingRow {
+  readonly label: string;
+  readonly sublabel?: string;
+  readonly value: number;
+}
+
+/**
+ * Una tabla de posiciones, no una lista de barras.
+ *
+ * "Quién hizo más horas" es una competencia, y una lista de barras grises no lo
+ * cuenta: hay que leer los números para saber quién va primero. Acá el puesto
+ * es lo primero que se ve, los tres de arriba tienen su color —oro, plata,
+ * bronce— y la barra pasa a ser el fondo de la fila en vez de una línea aparte.
+ *
+ * La barra es relativa al primero y no al total: lo que importa es la distancia
+ * al que va ganando, no qué porcentaje del equipo representa cada uno.
+ */
+export function RankingList({
+  data,
+  format = "minutes",
+  emptyLabel = "Sin datos para este período.",
+}: {
+  readonly data: readonly RankingRow[];
+  readonly format?: "money" | "minutes" | "number";
+  readonly emptyLabel?: string;
+}) {
+  if (data.length === 0) {
+    return <p className="text-chalk-600 py-8 text-center text-xs">{emptyLabel}</p>;
+  }
+
+  const max = Math.max(...data.map((item) => item.value), 1);
+  const formatValue = (value: number): string =>
+    format === "money"
+      ? formatMoneyCompact(value)
+      : format === "minutes"
+        ? formatMinutes(value)
+        : value.toLocaleString("es-AR");
+
+  return (
+    <ol className="stagger flex flex-col gap-1">
+      {data.map((item, index) => {
+        const puesto = index + 1;
+        const porcentaje = Math.max(3, (item.value / max) * 100);
+
+        return (
+          <li
+            key={item.label + index}
+            className={cn("puesto", puesto <= 3 && "puesto-" + puesto)}
+            style={{ "--avance": porcentaje + "%" } as React.CSSProperties}
+          >
+            <span className="puesto-numero">{puesto}</span>
+
+            <span className="min-w-0 flex-1">
+              <span className="text-chalk-100 block truncate text-xs font-semibold">
+                {item.label}
+              </span>
+              {item.sublabel ? (
+                <span className="text-chalk-600 block truncate text-[0.625rem]">
+                  {item.sublabel}
+                </span>
+              ) : null}
+            </span>
+
+            <span className="tnum text-chalk-200 shrink-0 text-xs font-bold">
+              {formatValue(item.value)}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}

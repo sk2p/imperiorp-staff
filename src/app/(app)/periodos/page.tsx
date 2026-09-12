@@ -19,6 +19,7 @@ import { formatMinutes } from "@/domain/time";
 import { requirePermission } from "@/lib/auth/context";
 import { listWeeks, preflightClose, suggestNextPeriodRange } from "@/server/weeks";
 import { weekFiltersSchema } from "@/validation/weeks";
+import { PeriodProgress } from "./period-progress";
 import { ClosePeriodDialog, CreatePeriodDialog, ReopenPeriodDialog } from "./period-dialogs";
 
 export const metadata: Metadata = { title: "Períodos" };
@@ -117,6 +118,8 @@ export default async function PeriodsPage({
               </p>
             </div>
           </div>
+
+          <PeriodProgress startDate={openWeek.startDate} endDate={openWeek.endDate} />
 
           {preflight && preflight.warnings.length > 0 ? (
             <div className="border-t border-white/[0.07] px-4 py-3">
