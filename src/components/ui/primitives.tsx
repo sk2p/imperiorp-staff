@@ -167,7 +167,7 @@ export function Stat({
   const direction = trend ? (trend.value > 0 ? "up" : trend.value < 0 ? "down" : "flat") : null;
 
   return (
-    <div className={cn("surface-edge p-4", accent && "border-imperial-500/25")}>
+    <div className={cn("surface-edge stat-card p-4", accent && "border-imperial-500/25")}>
       <div className="flex items-start justify-between gap-2">
         <p className="overline">{label}</p>
         {icon ? <span className="text-chalk-600">{icon}</span> : null}

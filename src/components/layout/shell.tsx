@@ -193,7 +193,11 @@ export function AppShell({
         </header>
 
         <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 pt-5 pb-24 sm:px-6 lg:pb-10">
-          {children}
+          {/* La `key` con la ruta rearma el nodo en cada navegación: sin eso
+              React reutiliza el mismo y la animación no vuelve a correr. */}
+          <div key={pathname} className="pagina">
+            {children}
+          </div>
         </main>
       </div>
 

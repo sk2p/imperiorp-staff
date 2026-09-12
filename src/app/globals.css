@@ -1423,3 +1423,238 @@ body[data-arrastrando] {
   color: transparent;
   mask-image: linear-gradient(to bottom, transparent, #000 26%, #000 72%, transparent);
 }
+
+/* ==========================================================================
+   Detalles de acabado
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   Tarjetas de indicador
+   -------------------------------------------------------------------------- */
+
+/* Un filo que recorre el borde superior al pasar por encima. El degradado se
+   mueve de izquierda a derecha una sola vez: es un destello, no un loop que
+   distraiga mientras alguien lee un número. */
+.surface-edge::before {
+  transition: opacity 300ms ease;
+}
+
+.stat-card {
+  position: relative;
+  overflow: hidden;
+  transition:
+    border-color 220ms ease,
+    transform 220ms cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--line-strong);
+}
+
+.stat-card::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--color-imperial-500), transparent);
+  transform: translateX(-100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.stat-card:hover::after {
+  animation: filo-corre 900ms ease-out;
+}
+
+@keyframes filo-corre {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Filas de tabla
+   -------------------------------------------------------------------------- */
+
+/* Un filo imperial a la izquierda de la fila que se está mirando. En una tabla
+   de cuarenta filas y ocho columnas, es lo que evita perder el renglón a mitad
+   de camino. */
+.data-table tbody tr {
+  position: relative;
+}
+
+.data-table tbody tr:hover > td:first-child {
+  box-shadow: inset 2px 0 0 0 var(--color-imperial-500);
+}
+
+/* Salvo cuando la fila ya tiene su propio filo, como en el tablero de pagos. */
+.data-table tbody tr.pay-row-paid:hover > td:first-child,
+.data-table tbody tr.pay-row-pending:hover > td:first-child {
+  box-shadow: inset 3px 0 0 0 currentColor;
+}
+
+/* --------------------------------------------------------------------------
+   Barra lateral
+   -------------------------------------------------------------------------- */
+
+/* El ítem activo se ilumina apenas por dentro, además de la franja del borde.
+   Sin esto, con la barra llena de enlaces grises cuesta encontrar dónde estás. */
+.row-rail[data-active="true"] {
+  background-image: linear-gradient(90deg, rgb(229 22 44 / 0.09), transparent 55%);
+}
+
+.row-rail {
+  position: relative;
+}
+
+/* Al pasar por encima de uno inactivo, se insinúa la misma franja. */
+.row-rail[data-active="false"]::before {
+  content: "";
+  position: absolute;
+  left: -0.75rem;
+  top: 50%;
+  width: 3px;
+  height: 0;
+  transform: translateY(-50%);
+  border-radius: 0 3px 3px 0;
+  background: var(--color-chalk-600);
+  transition: height 180ms ease;
+}
+
+.row-rail[data-active="false"]:hover::before {
+  height: 0.875rem;
+}
+
+/* --------------------------------------------------------------------------
+   Barra de desplazamiento
+   -------------------------------------------------------------------------- */
+
+/* La de Windows es gris claro y rompe el tema entero apenas una tabla se pasa
+   de ancho. Esta se pinta imperial al agarrarla. */
+::-webkit-scrollbar-thumb:active {
+  background: var(--color-imperial-600);
+}
+
+/* Firefox no admite las reglas de arriba, pero sí estas dos. */
+* {
+  scrollbar-color: var(--color-ink-700) transparent;
+  scrollbar-width: thin;
+}
+
+/* --------------------------------------------------------------------------
+   Entrada de cada pantalla
+   -------------------------------------------------------------------------- */
+
+/* El contenido sube apenas al cambiar de página. Ciento sesenta milisegundos:
+   suficiente para que el cambio se sienta, poco para que nadie espere. */
+.pagina {
+  animation: pagina-entra 160ms ease-out both;
+}
+
+@keyframes pagina-entra {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pagina,
+  .stat-card:hover::after {
+    animation: none;
+  }
+  .stat-card:hover {
+    transform: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Foco que sigue al puntero
+   -------------------------------------------------------------------------- */
+
+.foco {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: var(--foco-opacidad, 0);
+  transition: opacity 400ms ease;
+  background: radial-gradient(
+    30rem circle at var(--foco-x, 50%) var(--foco-y, 40%),
+    rgb(229 22 44 / 0.09),
+    transparent 45%
+  );
+}
+
+/* --------------------------------------------------------------------------
+   Borde vivo de la tarjeta de ingreso
+   -------------------------------------------------------------------------- */
+
+/* Un hilo de luz que da la vuelta al borde. Es lo único animado en reposo de
+   toda la aplicación, y está sólo acá: la pantalla de ingreso es la única que
+   se mira sin estar haciendo nada. */
+.borde-vivo {
+  position: relative;
+  isolation: isolate;
+}
+
+.borde-vivo::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--giro, 0deg),
+    transparent 0deg,
+    transparent 250deg,
+    rgb(229 22 44 / 0.55) 300deg,
+    rgb(255 77 94 / 0.9) 330deg,
+    transparent 360deg
+  );
+  /* La máscara deja sólo el marco: el relleno del medio se recorta. */
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  animation: girar-borde 6s linear infinite;
+  z-index: -1;
+}
+
+@property --giro {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes girar-borde {
+  to {
+    --giro: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .borde-vivo::before {
+    animation: none;
+  }
+  .foco {
+    display: none;
+  }
+}

@@ -3,6 +3,7 @@ import Image from "next/image";
 import { redirect } from "next/navigation";
 
 import { getAuthContext } from "@/lib/auth/context";
+import { Spotlight } from "@/components/ui/spotlight";
 import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = { title: "Ingresar" };
@@ -25,6 +26,8 @@ export default async function LoginPage({
 
   return (
     <main className="relative flex min-h-dvh items-center justify-center overflow-hidden px-4 py-10">
+      <Spotlight />
+
       {/* Marca de agua: una corona enorme, recortada, muy tenue. Da identidad
           sin competir con el formulario. */}
       <div
@@ -50,7 +53,7 @@ export default async function LoginPage({
           </p>
         </div>
 
-        <div className="surface-raised p-5 sm:p-6">
+        <div className="surface-raised borde-vivo p-5 sm:p-6">
           <LoginForm redirectTo={params.destino ?? null} />
         </div>
 
