@@ -37,8 +37,15 @@ import { recalculateWeekRecords } from "./weeks";
  *      turno —dos clicks, un reintento de red— no duplique nada.
  */
 
-/** Más de esto abierto y el fichaje se cierra solo: alguien se olvidó de salir. */
-export const MAX_SHIFT_HOURS = 12;
+/**
+ * Más de esto abierto y el fichaje se cierra solo: alguien se olvidó de salir.
+ *
+ * El número NO se dice en ningún mensaje del bot, a propósito. Un límite
+ * anunciado es un límite que se puede aprovechar: sabiendo que corta en 16, se
+ * puede dejar abierto sin dar salida y quedarse con las horas justas por debajo.
+ * Sin el número a la vista, olvidarse de salir es un problema y no una táctica.
+ */
+export const MAX_SHIFT_HOURS = 16;
 
 export interface ShiftMember {
   readonly id: string;

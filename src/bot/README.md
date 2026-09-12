@@ -113,8 +113,12 @@ Para que ande, en **Vercel** tienen que estar `DISCORD_TOKEN` y `DISCORD_PAGOS`.
 - **Resumen diario**, a medianoche: uno por bloque en su canal y uno global con
   todo el staff.
 - **Cierre de fichajes olvidados**, cada diez minutos. Un turno abierto más de
-  12 horas se cierra al tope y queda marcado como automático en el registro,
-  para que se vea que ese número no es de fiar.
+  `MAX_SHIFT_HOURS` (hoy, 16) se cierra al tope y queda marcado como automático
+  en el registro, para que se vea que ese número no es de fiar.
+
+  El límite **no se menciona en ningún mensaje del bot**, a propósito: un límite
+  anunciado es un límite que se puede aprovechar. Si hay que cambiarlo, está en
+  `src/server/shifts.ts`.
 
 ## Reglas que hace cumplir
 

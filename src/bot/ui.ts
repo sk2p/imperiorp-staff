@@ -86,10 +86,7 @@ export function panelFichaje(group: StaffGroup) {
     )
     .addSeparatorComponents(separador())
     .addTextDisplayComponents(
-      texto(
-        "-# El fichaje se cierra solo si queda abierto más de 12 horas. " +
-          "Si te olvidaste de salir, avisale a un administrador para que lo corrija.",
-      ),
+      texto("-# Si te olvidaste de dar salida, avisale a un administrador para que te lo corrija."),
     )
     .addActionRowComponents(
       fila(
@@ -242,7 +239,7 @@ export function registroFichaje(resultado: CloseResult) {
           (automatico
             ? "\n-# " +
               emoji("ERROR") +
-              " Cerrado automáticamente: quedó abierto más de 12 horas. El tiempo puede no ser real."
+              " Cierre automático del sistema. Este tiempo puede no ser real: conviene revisarlo."
             : "") +
           (forzado ? "\n-# " + emoji("ADMIN") + " Cerrado por un administrador." : ""),
       ),
