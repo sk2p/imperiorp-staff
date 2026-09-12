@@ -114,8 +114,12 @@ export function PaymentBoardTable({ board, weekId, canPay, canVoid, isClosed }: 
   return (
     <div className="relative">
       {pending ? (
-        <div className="anim-fade bg-ink-900/90 text-chalk-400 absolute top-2 right-3 z-10 flex items-center gap-1.5 rounded-full border border-white/12 px-2.5 py-1 text-[0.6875rem] backdrop-blur">
-          <span className="border-imperial-500 h-2.5 w-2.5 animate-spin rounded-full border-2 border-t-transparent" />
+        <div className="anim-fade guardando">
+          <span className="loader-dots" aria-hidden>
+            <span />
+            <span />
+            <span />
+          </span>
           Guardando…
         </div>
       ) : null}

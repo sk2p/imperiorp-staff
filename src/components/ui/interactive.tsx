@@ -141,7 +141,11 @@ export function SubmitButton({
     >
       {pending ? (
         <>
-          <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          <span className="loader-dots" aria-hidden>
+            <span />
+            <span />
+            <span />
+          </span>
           {pendingLabel}
         </>
       ) : (

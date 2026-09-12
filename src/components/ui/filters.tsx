@@ -79,7 +79,11 @@ export function SearchField({
       />
       {pending ? (
         <span className="absolute inset-y-0 right-2.5 flex items-center">
-          <span className="border-chalk-600 h-3 w-3 animate-spin rounded-full border-2 border-t-transparent" />
+          <span className="loader-dots text-chalk-600" aria-hidden>
+            <span />
+            <span />
+            <span />
+          </span>
         </span>
       ) : null}
     </div>

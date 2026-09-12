@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { Icon } from "@/components/layout/icons";
 import { Badge, cn } from "@/components/ui/primitives";
+import { Tilt } from "@/components/ui/tilt";
 import { GROUP_DEFINITIONS, readableTextOn } from "@/domain/groups";
 import { formatMoney, formatMoneyCompact } from "@/domain/money";
 import { PERMISSIONS, type Permission } from "@/domain/permissions";
@@ -176,7 +177,9 @@ export function StaffCards({
 
             <div className="stagger grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {group.cards.map((card) => (
-                <StaffCard key={card.id} card={card} can={can} />
+                <Tilt key={card.id}>
+                  <StaffCard card={card} can={can} />
+                </Tilt>
               ))}
             </div>
           </section>
