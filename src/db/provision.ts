@@ -4,7 +4,7 @@ import { closeDatabase, db, withTransaction } from "@/db";
 import { staffMembers, staffRankHistory, users } from "@/db/schema";
 import { generateTemporaryPassword, hashPassword } from "@/lib/auth/password";
 import { logger } from "@/lib/core/logger";
-import { RANK_DEFINITIONS, type StaffRank } from "@/domain/ranks";
+import { RANK_DEFINITIONS, rankBaseOrder, type StaffRank } from "@/domain/ranks";
 import type { UserRole } from "@/domain/permissions";
 import { secretFingerprint } from "@/lib/core/fingerprint";
 import { runMigrations } from "./migrate";
@@ -30,14 +30,22 @@ interface Account {
 }
 
 const ACCOUNTS: readonly Account[] = [
-  // pit creó el sistema: es el único rol por encima de Owner, y el único que
-  // puede administrar cuentas Owner.
+  /**
+   * Los encargados de la página.
+   *
+   * Fundador es el único rol por encima de Owner: administra las cuentas del
+   * panel, reparte permisos y entra a Auditoría, Historial y Configuración.
+   *
+   * Ojo con la otra columna: el rol es lo que pueden hacer ACÁ ADENTRO, el
+   * rango es su lugar en Imperio RP. pit y mati manejan la página siendo ADM++,
+   * y por encima de ellos en el servidor están la DG y el SubDG.
+   */
   { username: "pit", displayName: "Pit", role: "FOUNDER", rank: "ADM++" },
+  { username: "mati", displayName: "Mati", role: "FOUNDER", rank: "ADM++" },
 
   { username: "neoblue", displayName: "NeoBlue", role: "OWNER" },
   { username: "mia", displayName: "Mia", role: "OWNER", rank: "DG" },
   { username: "h44ru", displayName: "H44ru", role: "OWNER", rank: "SUBDG" },
-  { username: "mati", displayName: "Mati", role: "OWNER", rank: "ADM++" },
   { username: "xavi", displayName: "Xavi", role: "OWNER", rank: "ADM++" },
   { username: "joaquito", displayName: "Joaquito", role: "OWNER", rank: "ADM++" },
   { username: "robertito", displayName: "Robertito", role: "OWNER", rank: "ADM++" },
@@ -111,6 +119,12 @@ export async function provision(): Promise<{ username: string; password: string;
             name: account.displayName,
             rank: account.rank,
             category: definition.category,
+            // La ficha queda atada a su cuenta: así el panel puede mostrarle a
+            // cada uno su rango del servidor y no el rol con el que entra.
+            userId: user.id,
+            // Y entra en el escalón de su rango, para que la lista aparezca
+            // ordenada por jerarquía desde el primer día.
+            displayOrder: rankBaseOrder(account.rank),
             createdBy: user.id,
           })
           .returning();

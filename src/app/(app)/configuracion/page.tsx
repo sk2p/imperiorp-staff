@@ -13,7 +13,7 @@ import { formatMoney } from "@/domain/money";
 import { PERMISSIONS, ROLE_DEFINITIONS, isUserRole, roleLabel } from "@/domain/permissions";
 import { formatPeriodLabel } from "@/domain/periods";
 import { formatMinutes } from "@/domain/time";
-import { requireAnyPermission } from "@/lib/auth/context";
+import { requireAnyPermission, requireFounder } from "@/lib/auth/context";
 import { getWeekGrid } from "@/server/grid";
 import { SECURITY_EVENT_LABELS, listSecurityEvents } from "@/server/security-events";
 import { getGroupRates, listRankRates, listRateHistory, listSettings } from "@/server/settings";
@@ -33,17 +33,10 @@ export default async function SettingsPage() {
     PERMISSIONS.USERS_VIEW,
   ]);
 
-  const actorRank = isUserRole(user.role) ? ROLE_DEFINITIONS[user.role].rank : 0;
+  // Configuración es de los encargados: define pagos, accesos y permisos.
+  await requireFounder("La configuración");
 
-  /**
-   * Las cuentas del panel las administran únicamente los Fundadores —hoy pit y
-   * mati, los encargados de la página.
-   *
-   * Un Owner puede hacer todo lo demás, pero ver la lista de usuarios expone
-   * quién tiene acceso y desde cuándo, y permite restablecer contraseñas
-   * ajenas y repartir permisos. Eso queda en pocas manos.
-   */
-  const canManageUsers = user.role === "FOUNDER";
+  const actorRank = isUserRole(user.role) ? ROLE_DEFINITIONS[user.role].rank : 0;
 
   const week = await getCurrentWeek();
 
@@ -53,9 +46,7 @@ export default async function SettingsPage() {
       getGroupRates(),
       can(PERMISSIONS.SETTINGS_RATES) ? listRateHistory(8) : Promise.resolve([]),
       can(PERMISSIONS.SETTINGS_MANAGE) ? listSettings() : Promise.resolve([]),
-      canManageUsers
-        ? listUsers({ page: 1, pageSize: 50, status: "all", search: null })
-        : Promise.resolve(null),
+      listUsers({ page: 1, pageSize: 50, status: "all", search: null }),
       can(PERMISSIONS.SECURITY_VIEW)
         ? listSecurityEvents({ page: 1, pageSize: 12, search: null })
         : Promise.resolve(null),
@@ -286,14 +277,6 @@ export default async function SettingsPage() {
             </ul>
           )}
         </Card>
-      ) : null}
-
-      {!canManageUsers ? (
-        <Callout tone="neutral" title="Usuarios del panel">
-          La gestión de cuentas y los permisos de la página están a cargo de <strong>pit</strong> y{" "}
-          <strong>mati</strong>. Si necesitás dar de alta a alguien, cambiarle los permisos o
-          restablecer una contraseña, pedíselo a alguno de los dos.
-        </Callout>
       ) : null}
     </div>
   );

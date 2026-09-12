@@ -6,7 +6,7 @@ import { generateTemporaryPassword, hashPassword } from "@/lib/auth/password";
 import { secretFingerprint } from "@/lib/core/fingerprint";
 import { logger } from "@/lib/core/logger";
 import { isUserRole, type UserRole } from "@/domain/permissions";
-import { isStaffRank, RANK_DEFINITIONS, type StaffRank } from "@/domain/ranks";
+import { isStaffRank, RANK_DEFINITIONS, rankBaseOrder, type StaffRank } from "@/domain/ranks";
 
 /**
  * Agrega UNA cuenta sin tocar nada de lo existente.
@@ -94,6 +94,8 @@ export async function addAccount(
           name: input.displayName,
           rank: input.rank,
           category: definition.category,
+          userId: user.id,
+          displayOrder: rankBaseOrder(input.rank),
           createdBy: user.id,
         })
         .returning();

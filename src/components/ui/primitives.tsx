@@ -175,7 +175,7 @@ export function Stat({
       <p
         className={cn(
           "tnum mt-2 text-[1.6rem] leading-none font-semibold tracking-tight",
-          accent ? "text-imperial-400" : "text-chalk-50",
+          accent ? "text-imperial-400 stat-glow" : "text-chalk-50",
         )}
       >
         {value}

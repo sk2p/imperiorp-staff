@@ -1,7 +1,10 @@
 import { headers } from "next/headers";
 import { cache } from "react";
 
-import type { Session, User } from "@/db/schema";
+import { and, eq, isNull } from "drizzle-orm";
+
+import { db } from "@/db";
+import { staffMembers, type Session, type User } from "@/db/schema";
 import { forbidden, unauthenticated } from "@/lib/core/errors";
 import { newTraceId } from "@/lib/core/logger";
 import {
@@ -31,6 +34,15 @@ export interface Viewer {
   readonly mustChangePassword: boolean;
   readonly lastLoginAt: Date | null;
   readonly sessionId: string;
+  /**
+   * Rango dentro del servidor, si la cuenta tiene ficha de staff.
+   *
+   * No es lo mismo que `role`: pit entra como Fundador del panel y es ADM++
+   * en Imperio RP. Mostrarle "Fundador" debajo del nombre a todo el que
+   * administra la página decía algo falso sobre la jerarquía del servidor.
+   */
+  readonly staffRank: string | null;
+  readonly staffMemberId: string | null;
 }
 
 /** Quién ejecuta una operación, con la traza para auditarla. */
@@ -92,7 +104,28 @@ export async function requestMetadata(): Promise<{
 /* Lectura del contexto                                                       */
 /* -------------------------------------------------------------------------- */
 
-function toViewer(user: User, sessionId: string): Viewer {
+/**
+ * Ficha de staff de una cuenta, si la tiene.
+ *
+ * `cache` la resuelve una sola vez por render, aunque la pidan el armazón y
+ * tres pantallas. Es una consulta por índice único, no por nombre.
+ */
+const staffIdentity = cache(
+  async (userId: string): Promise<{ id: string; rank: string } | null> => {
+    const [row] = await db
+      .select({ id: staffMembers.id, rank: staffMembers.rank })
+      .from(staffMembers)
+      .where(and(eq(staffMembers.userId, userId), isNull(staffMembers.archivedAt)))
+      .limit(1);
+    return row ?? null;
+  },
+);
+
+function toViewer(
+  user: User,
+  sessionId: string,
+  staff: { id: string; rank: string } | null,
+): Viewer {
   return {
     id: user.id,
     username: user.username,
@@ -102,6 +135,8 @@ function toViewer(user: User, sessionId: string): Viewer {
     mustChangePassword: user.mustChangePassword,
     lastLoginAt: user.lastLoginAt,
     sessionId,
+    staffRank: staff?.rank ?? null,
+    staffMemberId: staff?.id ?? null,
   };
 }
 
@@ -114,13 +149,13 @@ export const getAuthContext = cache(async (): Promise<AuthContext | null> => {
   if (!sessionContext) return null;
 
   const { user, session } = sessionContext;
-  const metadata = await requestMetadata();
+  const [metadata, staff] = await Promise.all([requestMetadata(), staffIdentity(user.id)]);
   const permissions = effectivePermissions(user);
 
   return {
     user,
     session,
-    viewer: toViewer(user, session.id),
+    viewer: toViewer(user, session.id, staff),
     actor: {
       id: user.id,
       username: user.username,
@@ -188,10 +223,19 @@ export async function requireOwner(): Promise<AuthContext> {
  * y poder restablecer contraseñas ajenas queda en una sola mano, no en todas
  * las que tengan rol Owner.
  */
-export async function requireFounder(): Promise<AuthContext> {
+/**
+ * Exige rol de Fundador: hoy, los encargados de la página.
+ *
+ * Auditoría, Historial y Configuración muestran quién hizo qué, con qué IP y
+ * desde cuándo, y permiten repartir accesos. Es información sobre las personas
+ * del equipo, no sobre el servidor, así que queda en pocas manos.
+ */
+export async function requireFounder(seccion = "Esta sección"): Promise<AuthContext> {
   const context = await requireAuth();
   if (context.user.role !== "FOUNDER") {
-    throw forbidden("La gestión de usuarios del panel está reservada al Fundador.");
+    throw forbidden(
+      seccion + " está reservada a los encargados de la página. Si la necesitás, pedísela a ellos.",
+    );
   }
   return context;
 }

@@ -182,3 +182,17 @@ export function compareRankChange(from: string, to: string): "ascenso" | "descen
   if (delta < 0) return "descenso";
   return "lateral";
 }
+
+/**
+ * Posición inicial de un rango dentro de la lista.
+ *
+ * La grilla ordena por el orden manual que fija el equipo arrastrando filas.
+ * Para que la lista aparezca ordenada por jerarquía antes de que nadie toque
+ * nada, cada rango arranca en su propio escalón: DG en 100, SUBDG en 200, y así
+ * hasta SDP. Los cien de separación dejan lugar para acomodar gente entre medio
+ * sin tener que renumerar a todos.
+ */
+export function rankBaseOrder(rank: string): number {
+  const definition = isStaffRank(rank) ? RANK_DEFINITIONS[rank] : undefined;
+  return definition ? (12 - definition.tier) * 100 : 1200;
+}

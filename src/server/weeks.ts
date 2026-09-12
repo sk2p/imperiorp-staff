@@ -296,10 +296,30 @@ export async function createWeek(input: CreateWeekInput, actor: ActorContext): P
       ),
     );
     if (overlapping) {
+      /**
+       * El mensaje nombra los días exactos que chocan. Decir sólo "se
+       * superpone" obliga a adivinar contra qué, y con varios períodos
+       * cargados es imposible: las fechas se ven distintas y aun así comparten
+       * un día en el medio.
+       */
+      const desde =
+        input.startDate > overlapping.startDate ? input.startDate : overlapping.startDate;
+      const hasta = input.endDate < overlapping.endDate ? input.endDate : overlapping.endDate;
+
       throw conflict(
-        "El período se superpone con " +
+        "El período que querés crear (" +
+          input.startDate +
+          " → " +
+          input.endDate +
+          ") comparte " +
+          (desde === hasta ? "el día " + desde : "los días " + desde + " → " + hasta) +
+          " con " +
           formatPeriodLabel(overlapping.startDate, overlapping.endDate) +
-          ". Ajustá las fechas para que no compartan días.",
+          " (" +
+          overlapping.startDate +
+          " → " +
+          overlapping.endDate +
+          "). Elegí fechas que no pisen ningún día de ese período.",
       );
     }
     const [created] = await tx

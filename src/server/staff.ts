@@ -1,9 +1,28 @@
 import { and, asc, desc, eq, isNull, isNotNull, or, sql, type SQL } from "drizzle-orm";
 import { db, withTransaction, type Transaction } from "@/db";
-import { hourEntries, staffMembers, staffRankHistory, type StaffMember } from "@/db/schema";
+import {
+  hourEntries,
+  rankRates,
+  staffMembers,
+  staffRankHistory,
+  type StaffMember,
+} from "@/db/schema";
 import type { ActorContext } from "@/lib/auth/context";
 import { businessRule, concurrency, conflict, notFound, validation } from "@/lib/core/errors";
-import { categoryForRank, compareRankChange, rankLabel, type StaffRank } from "@/domain/ranks";
+import {
+  DEFAULT_RANK_COLORS,
+  GROUP_LIST,
+  groupForCategory,
+  type StaffGroup,
+} from "@/domain/groups";
+import { calculateEarnings } from "@/domain/payroll";
+import {
+  categoryForRank,
+  compareRankChange,
+  rankBaseOrder,
+  rankLabel,
+  type StaffRank,
+} from "@/domain/ranks";
 import { containsPattern, offsetFor, paginate, type Paginated } from "@/validation/common";
 import type {
   ArchiveStaffInput,
@@ -225,6 +244,8 @@ export async function createStaffMember(
         name: input.name,
         rank: input.rank,
         category,
+        // Entra en el escalón de su rango, no al principio de la lista.
+        displayOrder: rankBaseOrder(input.rank),
         createdBy: actor.id,
       })
       .returning();
@@ -334,6 +355,8 @@ export async function changeStaffRank(
       .set({
         rank: input.rank,
         category: categoryForRank(input.rank as StaffRank),
+        // Se reubica en el escalón del rango nuevo, igual que desde la grilla.
+        displayOrder: rankBaseOrder(input.rank),
         version: existing.version + 1,
         updatedAt: new Date(),
       })
@@ -475,4 +498,140 @@ async function lockStaffMember(tx: Transaction, id: string): Promise<StaffMember
     .for("update");
   if (!member) throw notFound("El miembro del staff");
   return member;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Tablero del staff                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * El staff completo, en el mismo orden que la planilla de horas.
+ *
+ * Sin paginado: el equipo son cuarenta personas, no cuatro mil, y partirlo en
+ * páginas obligaba a saltar de una a otra para ver el plantel entero. Se trae
+ * todo de una y se lee de arriba a abajo, agrupado en High, Mid y Low y
+ * ordenado por la misma posición que se acomoda arrastrando en /horas, para
+ * que las dos pantallas no digan cosas distintas sobre la jerarquía.
+ */
+export interface StaffBoardCard {
+  readonly id: string;
+  readonly name: string;
+  readonly rank: string;
+  readonly rankColor: string;
+  readonly category: string;
+  readonly hourlyRate: number;
+  readonly inGameId: string | null;
+  readonly discordTag: string | null;
+  readonly joinedAt: string | null;
+  readonly notes: string | null;
+  readonly archivedAt: Date | null;
+  readonly version: number;
+  readonly periodMinutes: number;
+  readonly periodEntries: number;
+  readonly periodAmount: number;
+}
+
+export interface StaffBoardGroup {
+  readonly group: StaffGroup;
+  readonly cards: readonly StaffBoardCard[];
+  readonly totalMinutes: number;
+  readonly totalAmount: number;
+}
+
+export interface StaffBoard {
+  readonly groups: readonly StaffBoardGroup[];
+  readonly memberCount: number;
+  readonly totalMinutes: number;
+  readonly totalAmount: number;
+}
+
+export async function getStaffBoard(
+  weekId: string | undefined,
+  includeArchived: boolean,
+): Promise<StaffBoard> {
+  const minutes = weekId
+    ? sql<number>`coalesce((
+        select sum(${hourEntries.minutes})::int
+        from ${hourEntries}
+        where ${hourEntries.staffMemberId} = ${staffMembers.id}
+          and ${hourEntries.weekId} = ${weekId}
+          and ${hourEntries.status} = 'normal'
+          and ${hourEntries.voidedAt} is null
+      ), 0)`
+    : sql<number>`0`;
+
+  const entries = weekId
+    ? sql<number>`coalesce((
+        select count(*)::int
+        from ${hourEntries}
+        where ${hourEntries.staffMemberId} = ${staffMembers.id}
+          and ${hourEntries.weekId} = ${weekId}
+          and ${hourEntries.voidedAt} is null
+      ), 0)`
+    : sql<number>`0`;
+
+  const rows = await db
+    .select({
+      id: staffMembers.id,
+      name: staffMembers.name,
+      rank: staffMembers.rank,
+      rankColor: rankRates.color,
+      hourlyRate: rankRates.ratePerHour,
+      category: staffMembers.category,
+      inGameId: staffMembers.inGameId,
+      discordTag: staffMembers.discordTag,
+      joinedAt: staffMembers.joinedAt,
+      notes: staffMembers.notes,
+      archivedAt: staffMembers.archivedAt,
+      displayOrder: staffMembers.displayOrder,
+      version: staffMembers.version,
+      periodMinutes: minutes,
+      periodEntries: entries,
+    })
+    .from(staffMembers)
+    .leftJoin(rankRates, eq(rankRates.rank, staffMembers.rank))
+    .where(includeArchived ? undefined : isNull(staffMembers.archivedAt))
+    .orderBy(asc(staffMembers.displayOrder), asc(staffMembers.name));
+
+  const cards: (StaffBoardCard & { group: StaffGroup })[] = rows.map((row) => {
+    const hourlyRate = row.hourlyRate ?? 0;
+    return {
+      id: row.id,
+      name: row.name,
+      rank: row.rank,
+      rankColor: row.rankColor ?? DEFAULT_RANK_COLORS[row.rank] ?? "#6f747d",
+      category: row.category,
+      hourlyRate,
+      inGameId: row.inGameId,
+      discordTag: row.discordTag,
+      joinedAt: row.joinedAt,
+      notes: row.notes,
+      archivedAt: row.archivedAt,
+      version: row.version,
+      periodMinutes: row.periodMinutes,
+      periodEntries: row.periodEntries,
+      periodAmount: calculateEarnings(row.periodMinutes, hourlyRate),
+      group: groupForCategory(row.category),
+    };
+  });
+
+  const groups: StaffBoardGroup[] = [];
+  for (const group of GROUP_LIST) {
+    const miembros = cards.filter((card) => card.group === group.group);
+    if (miembros.length === 0) continue;
+
+    groups.push({
+      group: group.group,
+      cards: miembros,
+      totalMinutes: miembros.reduce((sum, card) => sum + card.periodMinutes, 0),
+      totalAmount: miembros.reduce((sum, card) => sum + card.periodAmount, 0),
+    });
+  }
+
+  return {
+    groups,
+    memberCount: cards.length,
+    totalMinutes: groups.reduce((sum, group) => sum + group.totalMinutes, 0),
+    totalAmount: groups.reduce((sum, group) => sum + group.totalAmount, 0),
+  };
 }

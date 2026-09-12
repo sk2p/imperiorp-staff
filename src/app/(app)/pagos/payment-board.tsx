@@ -221,6 +221,11 @@ export function PaymentBoardTable({ board, weekId, canPay, canVoid, isClosed }: 
                     </td>
                     <td className="tnum text-right text-sm font-bold">
                       {formatMoney(row.paid ? (row.paidAmount ?? row.amount) : row.amount)}
+                      {row.paid && row.paidAmount !== null && row.paidAmount !== row.amount ? (
+                        <span className="mt-0.5 block text-[0.625rem] font-normal text-amber-400">
+                          ahora calcula {formatMoneyCompact(row.amount)}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="text-center">
                       <span
@@ -278,12 +283,7 @@ export function PaymentBoardTable({ board, weekId, canPay, canVoid, isClosed }: 
             </p>
           </div>
 
-          {!isClosed ? (
-            <p className="text-chalk-500 px-3 py-3 text-[0.6875rem] leading-snug">
-              El período sigue abierto. Mientras las horas puedan cambiar, el importe todavía no es
-              definitivo: cerralo desde Períodos y después marcá los pagos.
-            </p>
-          ) : (
+          {
             <>
               <button
                 type="button"
@@ -326,8 +326,15 @@ export function PaymentBoardTable({ board, weekId, canPay, canVoid, isClosed }: 
                   Para desmarcar un pago hace falta el permiso de anulación.
                 </p>
               ) : null}
+
+              {!isClosed ? (
+                <p className="text-chalk-600 border-t border-white/[0.07] px-3 py-2 text-[0.625rem] leading-snug">
+                  El período sigue abierto: si después cambian las horas, el tablero avisa que el
+                  importe se movió.
+                </p>
+              ) : null}
             </>
-          )}
+          }
         </div>
       ) : null}
     </div>

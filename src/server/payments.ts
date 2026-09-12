@@ -14,7 +14,7 @@ import type { ActorContext } from "@/lib/auth/context";
 import { businessRule, concurrency, conflict, notFound, validation } from "@/lib/core/errors";
 import { DEFAULT_RANK_COLORS, GROUP_LIST, groupForRank, type StaffGroup } from "@/domain/groups";
 import { formatMoney } from "@/domain/money";
-import { RANK_DEFINITIONS, isStaffRank } from "@/domain/ranks";
+import { RANK_DEFINITIONS, isStaffRank, rankBaseOrder } from "@/domain/ranks";
 import { formatPeriodLabel } from "@/domain/periods";
 import { formatMinutes } from "@/domain/time";
 import { containsPattern, offsetFor, paginate, type Paginated } from "@/validation/common";
@@ -262,10 +262,20 @@ async function loadSettlementForPayment(
   tx: Transaction,
   weekId: string,
   staffMemberId: string,
+  allowOpenPeriod = false,
 ): Promise<SettlementContext> {
   const [week] = await tx.select().from(weeks).where(eq(weeks.id, weekId)).limit(1).for("update");
   if (!week) throw notFound("El período");
-  if (week.status !== "closed") {
+  /**
+   * El formulario de pago exige el período cerrado: ahí se escribe un importe
+   * a mano y no tiene sentido hacerlo contra horas que todavía se mueven.
+   *
+   * El tablero es otra cosa. Ahí se va tildando a quien ya cobró, muchas veces
+   * el mismo sábado antes de cerrar, y bloquearlo convertía la pantalla en un
+   * adorno. Paga siempre el importe calculado, y si las horas cambian después
+   * el tablero muestra la diferencia en vez de taparla.
+   */
+  if (week.status !== "closed" && !allowOpenPeriod) {
     throw businessRule(
       "El período " +
         formatPeriodLabel(week.startDate, week.endDate) +
@@ -296,6 +306,8 @@ async function loadSettlementForPayment(
 export async function createPayment(
   input: CreatePaymentInput,
   actor: ActorContext,
+  /** Sólo el tablero lo usa: ver `loadSettlementForPayment`. */
+  allowOpenPeriod = false,
 ): Promise<Payment> {
   return withSerializableTransaction(async (tx) => {
     // Reintento seguro: si la misma clave ya se usó, se devuelve aquel pago en
@@ -310,6 +322,7 @@ export async function createPayment(
       tx,
       input.weekId,
       input.staffMemberId,
+      allowOpenPeriod,
     );
     /**
      * El importe que vio el usuario debe coincidir con el vigente. Si no
@@ -676,12 +689,16 @@ export async function getPaymentBoard(
   weekId: string,
   settlementRows?: readonly SettlementRow[],
 ): Promise<PaymentBoard> {
-  const [settlement, colors] = await Promise.all([
+  const [settlement, colors, orden] = await Promise.all([
     settlementRows ?? getSettlement(weekId),
     db.select({ rank: rankRates.rank, color: rankRates.color }).from(rankRates),
+    // El mismo orden que la planilla de horas. Si en /horas alguien movió a Pit
+    // arriba de Joaquito, acá tiene que estar arriba de Joaquito.
+    db.select({ id: staffMembers.id, displayOrder: staffMembers.displayOrder }).from(staffMembers),
   ]);
 
   const colorByRank = new Map(colors.map((row) => [row.rank, row.color]));
+  const orderById = new Map(orden.map((row) => [row.id, row.displayOrder]));
 
   const rows: PaymentBoardRow[] = settlement.map((row) => ({
     staffMemberId: row.staffMemberId,
@@ -702,9 +719,11 @@ export async function getPaymentBoard(
   const groups = GROUP_LIST.map((definition) => {
     const members = rows
       .filter((row) => groupForRank(row.rank) === definition.group)
-      // De mayor a menor rango, y dentro del mismo rango por nombre: así la
-      // lista se recorre igual que la jerarquía del servidor.
       .sort((a, b) => {
+        const ordenA = orderById.get(a.staffMemberId) ?? rankBaseOrder(a.rank);
+        const ordenB = orderById.get(b.staffMemberId) ?? rankBaseOrder(b.rank);
+        if (ordenA !== ordenB) return ordenA - ordenB;
+
         const tier = (rank: string) => (isStaffRank(rank) ? RANK_DEFINITIONS[rank].tier : 0);
         const difference = tier(b.rank) - tier(a.rank);
         return difference !== 0 ? difference : a.name.localeCompare(b.name, "es");
@@ -798,6 +817,7 @@ export async function togglePaymentFromBoard(
         mismatchReason: null,
       },
       actor,
+      true,
     );
 
     return { paid: true, name: current.name, amount: current.calculated };

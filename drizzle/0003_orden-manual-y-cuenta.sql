@@ -1,0 +1,6 @@
+ALTER TABLE "staff_members" ADD COLUMN IF NOT EXISTS "user_id" uuid;--> statement-breakpoint
+DO $$ BEGIN ALTER TABLE "staff_members" ADD CONSTRAINT "staff_members_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE SET NULL; EXCEPTION WHEN duplicate_object THEN NULL; END $$;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "staff_members_user_active_idx" ON "staff_members" ("user_id") WHERE "user_id" IS NOT NULL AND "archived_at" IS NULL;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "staff_members_display_order_idx" ON "staff_members" ("display_order");--> statement-breakpoint
+UPDATE "staff_members" s SET "user_id" = u."id" FROM "users" u WHERE s."user_id" IS NULL AND s."archived_at" IS NULL AND (lower(u."display_name") = lower(s."name") OR lower(u."username") = lower(s."name")) AND NOT EXISTS (SELECT 1 FROM "staff_members" otra WHERE otra."user_id" = u."id" AND otra."archived_at" IS NULL);--> statement-breakpoint
+UPDATE "staff_members" SET "display_order" = CASE "rank" WHEN 'DG' THEN 100 WHEN 'SUBDG' THEN 200 WHEN 'ADM++' THEN 300 WHEN 'ADM+' THEN 400 WHEN 'ADM' THEN 500 WHEN 'MOD++' THEN 600 WHEN 'MOD+' THEN 700 WHEN 'MOD' THEN 800 WHEN 'SE' THEN 900 WHEN 'SP' THEN 1000 WHEN 'SDP' THEN 1100 ELSE 1200 END;

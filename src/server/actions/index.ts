@@ -9,7 +9,7 @@ import {
   requireFounder,
   requirePermission,
 } from "@/lib/auth/context";
-import { forbidden, isAppError } from "@/lib/core/errors";
+import { forbidden, isAppError, notFound } from "@/lib/core/errors";
 import { logger, newTraceId } from "@/lib/core/logger";
 import { PERMISSIONS } from "@/domain/permissions";
 import { formatMinutes } from "@/domain/time";
@@ -38,7 +38,7 @@ import {
 import { addMemberToWeek, closeWeek, createWeek, reopenWeek, updateWeek } from "@/server/weeks";
 import { changeOwnPassword, createUser, resetUserPassword, updateUser } from "@/server/users";
 import { updateRankRate, updateSetting } from "@/server/settings";
-import { revokeSessionById } from "@/lib/auth/session";
+import { revokeOwnSession, revokeSessionById } from "@/lib/auth/session";
 import { releaseLock } from "@/lib/auth/rate-limit";
 import {
   archiveStaffSchema,
@@ -790,6 +790,30 @@ export async function resetPasswordAction(
       const result = await resetUserPassword(input, context.actor);
       revalidatePath("/configuracion/usuarios");
       return result;
+    },
+  );
+}
+
+/**
+ * Cerrar una sesión propia desde Mi cuenta.
+ *
+ * No pide permiso especial: cualquiera puede echar a un dispositivo suyo. El
+ * servidor comprueba que la sesión sea de quien la pide, así que mandar el
+ * identificador de otro no cierra nada.
+ */
+export async function closeOwnSessionAction(
+  _previous: ActionState<unknown>,
+  formData: FormData,
+): Promise<ActionState<unknown>> {
+  return runAction(
+    formData,
+    { permission: null, schema: revokeSessionSchema, success: "Sesión cerrada." },
+    async (input, context) => {
+      const closed = await revokeOwnSession(input.sessionId, context.user.id);
+      if (!closed) throw notFound("Esa sesión");
+
+      // Si cerró la suya, el layout la echa al login en el próximo render.
+      revalidatePath("/perfil");
     },
   );
 }

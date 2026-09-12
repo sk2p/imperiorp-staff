@@ -9,6 +9,11 @@ export interface NavItem {
   readonly icon: string;
   /** Se muestra en la barra inferior del móvil. */
   readonly primary?: boolean;
+  /**
+   * Sólo para los encargados de la página. No alcanza con tener el permiso:
+   * son pantallas sobre las personas del equipo, no sobre el servidor.
+   */
+  readonly founderOnly?: boolean;
 }
 
 /**
@@ -74,6 +79,7 @@ export const NAV_GROUPS: readonly {
         short: "Historial",
         permissions: [PERMISSIONS.HOURS_VIEW],
         icon: "history",
+        founderOnly: true,
       },
       {
         href: "/auditoria",
@@ -81,6 +87,7 @@ export const NAV_GROUPS: readonly {
         short: "Auditoría",
         permissions: [PERMISSIONS.AUDIT_VIEW],
         icon: "shield",
+        founderOnly: true,
       },
     ],
   },
@@ -97,6 +104,7 @@ export const NAV_GROUPS: readonly {
           PERMISSIONS.USERS_VIEW,
         ],
         icon: "settings",
+        founderOnly: true,
       },
       { href: "/perfil", label: "Mi cuenta", short: "Cuenta", permissions: [], icon: "user" },
     ],
@@ -106,16 +114,19 @@ export const NAV_GROUPS: readonly {
 export function visibleItems(
   permissions: readonly string[],
   isOwner: boolean,
+  isFounder: boolean,
 ): readonly { readonly label: string; readonly items: readonly NavItem[] }[] {
   const granted = new Set(permissions);
 
   return NAV_GROUPS.map((group) => ({
     label: group.label,
-    items: group.items.filter(
-      (item) =>
+    items: group.items.filter((item) => {
+      if (item.founderOnly && !isFounder) return false;
+      return (
         item.permissions.length === 0 ||
         isOwner ||
-        item.permissions.some((permission) => granted.has(permission)),
-    ),
+        item.permissions.some((permission) => granted.has(permission))
+      );
+    }),
   })).filter((group) => group.items.length > 0);
 }

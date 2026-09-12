@@ -151,8 +151,22 @@ export const staffMembers = pgTable(
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
 
     /**
+     * Cuenta del panel a la que corresponde esta ficha, si tiene una.
+     *
+     * El rol de usuario y el rango de staff siguen siendo dos ejes distintos
+     * —pit es Fundador del panel y ADM++ del servidor—, pero la pantalla
+     * necesita el vínculo para mostrarle a cada uno su rango real en vez del
+     * rol con el que entra.
+     */
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+
+    /**
      * Posición manual dentro de su grupo en la grilla de horas. El equipo
      * ordena la lista como le resulta cómodo y ese orden se conserva.
+     *
+     * Es el criterio PRINCIPAL de orden. Arranca sembrado por rango —de ahí
+     * que la lista aparezca ordenada por jerarquía sin que nadie toque nada—,
+     * y a partir de ahí manda lo que el equipo acomode arrastrando.
      */
     displayOrder: integer("display_order").notNull().default(0),
 
@@ -165,9 +179,14 @@ export const staffMembers = pgTable(
     uniqueIndex("staff_members_name_active_idx")
       .on(sql`lower(${table.name})`)
       .where(sql`${table.archivedAt} is null`),
+    // Una ficha activa por cuenta: nadie tiene dos fichas cobrando a la vez.
+    uniqueIndex("staff_members_user_active_idx")
+      .on(table.userId)
+      .where(sql`user_id is not null and archived_at is null`),
     index("staff_members_rank_idx").on(table.rank),
     index("staff_members_active_idx").on(table.active),
     index("staff_members_category_idx").on(table.category),
+    index("staff_members_display_order_idx").on(table.displayOrder),
   ],
 );
 

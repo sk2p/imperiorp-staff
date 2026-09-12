@@ -161,6 +161,30 @@ export async function revokeSessionById(
 }
 
 /**
+ * Cierra UNA sesión propia.
+ *
+ * El dueño de la cuenta es quien mejor sabe qué dispositivos usa: si ve una
+ * sesión desde una IP que no reconoce, tiene que poder cortarla en el momento
+ * sin esperar a un administrador.
+ *
+ * La condición por `userId` no es un detalle: es lo que impide que, mandando
+ * el identificador de otro, alguien eche a un compañero de su sesión.
+ */
+export async function revokeOwnSession(sessionId: string, userId: string): Promise<boolean> {
+  const revoked = await db
+    .update(sessions)
+    .set({
+      revokedAt: new Date(),
+      revokeReason: "Cerrada por su dueño desde Mi cuenta",
+      revokedBy: userId,
+    })
+    .where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId), isNull(sessions.revokedAt)))
+    .returning({ id: sessions.id });
+
+  return revoked.length > 0;
+}
+
+/**
  * Cierra todas las sesiones de un usuario. Se llama al cambiar la contraseña,
  * al desactivar la cuenta y cuando un OWNER expulsa a alguien.
  */

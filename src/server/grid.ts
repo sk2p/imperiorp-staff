@@ -20,7 +20,13 @@ import {
   type StaffGroup,
 } from "@/domain/groups";
 import { eachDayOfPeriod, formatCalendarDate, isDateWithinPeriod } from "@/domain/periods";
-import { categoryForRank, compareRankChange, rankTier, type StaffRank } from "@/domain/ranks";
+import {
+  categoryForRank,
+  compareRankChange,
+  rankBaseOrder,
+  rankTier,
+  type StaffRank,
+} from "@/domain/ranks";
 import { formatMinutes, MAX_MINUTES_PER_ENTRY } from "@/domain/time";
 import { appendAuditLog } from "./audit";
 import { loadWeekForWrite, recalculateWeekRecords } from "./weeks";
@@ -159,17 +165,22 @@ export async function getWeekGrid(week: Week): Promise<WeekGrid> {
   const manualOrder = new Map(records.map((record) => [record.staffMemberId, record.displayOrder]));
 
   /**
-   * Orden dentro de cada grupo: primero el rango más alto (DG antes que SUBDG,
-   * ADM++ antes que ADM+), y entre iguales manda el orden manual que definió el
-   * equipo arrastrando las filas.
+   * Orden dentro de cada grupo: manda el orden manual.
+   *
+   * Antes mandaba el rango y el orden manual sólo desempataba, pero dentro de
+   * un grupo casi nunca hay dos personas del mismo rango: arrastrar decía
+   * "orden actualizado" y no movía nada. Ahora el rango define la POSICIÓN
+   * INICIAL —cada uno arranca en el escalón de su rango, así que la lista se
+   * ve ordenada por jerarquía sin que nadie haga nada— y a partir de ahí el
+   * equipo la acomoda como quiera.
    */
   const byRankThenManual = (a: GridRow, b: GridRow): number => {
+    const orderA = manualOrder.get(a.staffMemberId) ?? rankBaseOrder(a.rank);
+    const orderB = manualOrder.get(b.staffMemberId) ?? rankBaseOrder(b.rank);
+    if (orderA !== orderB) return orderA - orderB;
+
     const tierDelta = rankTier(b.rank) - rankTier(a.rank);
     if (tierDelta !== 0) return tierDelta;
-
-    const orderA = manualOrder.get(a.staffMemberId) ?? 0;
-    const orderB = manualOrder.get(b.staffMemberId) ?? 0;
-    if (orderA !== orderB) return orderA - orderB;
 
     return a.name.localeCompare(b.name, "es");
   };
@@ -312,9 +323,27 @@ export async function setGridCell(input: SetCellInput, actor: ActorContext): Pro
           })
           .where(eq(hourEntries.id, previous.id));
       } else {
+        /**
+         * Escribir horas en un día marcado como "todavía no estaba" lo vuelve
+         * normal. Esa marca la pone el sistema al incorporar a alguien a un
+         * período ya empezado; si después resulta que sí estuvo, cargar las
+         * horas tiene que alcanzar para que cuenten y se paguen, sin obligar a
+         * un segundo click derecho que nadie recuerda hacer.
+         *
+         * Las otras marcas —inactivo, justificada, anulado— las puso una
+         * persona a propósito y se respetan.
+         */
+        const status =
+          previous.status === "no_ingresado" && input.minutes > 0 ? "normal" : previous.status;
+
         const [updated] = await tx
           .update(hourEntries)
-          .set({ minutes: input.minutes, version: previous.version + 1, updatedAt: new Date() })
+          .set({
+            minutes: input.minutes,
+            status,
+            version: previous.version + 1,
+            updatedAt: new Date(),
+          })
           .where(and(eq(hourEntries.id, previous.id), eq(hourEntries.version, previous.version)))
           .returning();
         if (!updated) throw concurrency();
@@ -467,6 +496,12 @@ export async function changeRankFromGrid(
       .set({
         rank: input.rank,
         category: categoryForRank(input.rank),
+        /**
+         * Al cambiar de rango vuelve al escalón del rango nuevo. Si conservara
+         * su posición anterior, un ascenso de MOD a ADM++ lo dejaría al final
+         * del bloque High con una posición que ya no significa nada.
+         */
+        displayOrder: rankBaseOrder(input.rank),
         version: member.version + 1,
         updatedAt: new Date(),
       })

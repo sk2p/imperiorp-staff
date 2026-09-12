@@ -95,7 +95,11 @@ export function AppShell({
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const groups = visibleItems(viewer.permissions, viewer.role === "OWNER");
+  const groups = visibleItems(
+    viewer.permissions,
+    viewer.role === "OWNER",
+    viewer.role === "FOUNDER",
+  );
   const mobilePrimary = groups.flatMap((group) => group.items).filter((item) => item.primary);
 
   // El cajón se cierra al navegar: si quedara abierto taparía la página nueva.
@@ -141,8 +145,11 @@ export function AppShell({
           <span className="text-chalk-100 block truncate text-xs font-semibold">
             {viewer.displayName}
           </span>
+          {/* El rango del servidor, no el rol del panel: pit administra la
+              página siendo ADM++, y decirle "Fundador" acá era mentir sobre
+              la jerarquía de Imperio RP. Sin ficha de staff, cae al rol. */}
           <span className="text-chalk-600 block truncate text-[0.6875rem]">
-            {roleLabel(viewer.role)}
+            {viewer.staffRank ?? roleLabel(viewer.role)}
           </span>
         </span>
         <form action="/api/salir" method="post">

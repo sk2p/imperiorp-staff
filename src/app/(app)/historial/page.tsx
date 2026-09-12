@@ -8,7 +8,7 @@ import { formatMoney, formatMoneyCompact } from "@/domain/money";
 import { formatCalendarDate, formatPeriodLabel } from "@/domain/periods";
 import { PERMISSIONS } from "@/domain/permissions";
 import { formatMinutes } from "@/domain/time";
-import { requirePermission } from "@/lib/auth/context";
+import { requireFounder, requirePermission } from "@/lib/auth/context";
 import { listHourEntries } from "@/server/hours";
 import { listWeeks } from "@/server/weeks";
 import { hourFiltersSchema } from "@/validation/hours";
@@ -23,6 +23,8 @@ export default async function HistoryPage({
   readonly searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   await requirePermission(PERMISSIONS.HOURS_VIEW);
+  // Sección de encargados: ver quién hizo qué queda en pocas manos.
+  await requireFounder("El historial");
   const params = await searchParams;
 
   const weekId = typeof params.periodo === "string" ? params.periodo : undefined;

@@ -15,6 +15,7 @@ import {
   setSessionCookie,
 } from "@/lib/auth/session";
 import { rateLimited, unauthenticated } from "@/lib/core/errors";
+import { getEnv } from "@/lib/core/env";
 import { logger } from "@/lib/core/logger";
 import { recordSecurityEvent } from "./security-events";
 /**
@@ -73,12 +74,50 @@ export async function performLogin(
     });
     throw unauthenticated(GENERIC_ERROR);
   }
+  /**
+   * Bloqueo por CUENTA, además del que ya hay por IP.
+   *
+   * El límite por IP frena a quien prueba mil contraseñas desde una máquina;
+   * no frena a quien reparte los intentos entre muchas IP contra la misma
+   * cuenta, que es exactamente como se ataca una cuenta concreta. Este
+   * contador no mira de dónde viene el intento, sólo a quién apunta.
+   *
+   * Se responde con el mismo error genérico y sin decir que la cuenta está
+   * bloqueada: confirmar el bloqueo ya sería confirmar que la cuenta existe.
+   */
+  if (user.lockedUntil && user.lockedUntil.getTime() > Date.now()) {
+    await recordSecurityEvent({
+      type: "LOGIN_BLOCKED",
+      userId: user.id,
+      username: user.username,
+      ip: metadata.ip,
+      userAgent: metadata.userAgent,
+      details: {
+        reason: "cuenta bloqueada por intentos fallidos",
+        hasta: user.lockedUntil.toISOString(),
+      },
+    });
+    throw unauthenticated(GENERIC_ERROR);
+  }
+
   const check = await verifyPassword(input.password, user.passwordHash);
   if (!check.valid) {
     await registerFailedLogin(metadata.ip, username);
+
+    const fallos = user.failedLoginCount + 1;
+    const env = getEnv();
+    const bloquear = fallos >= env.MAX_LOGIN_ATTEMPTS;
+
     await db
       .update(users)
-      .set({ failedLoginCount: user.failedLoginCount + 1 })
+      .set({
+        failedLoginCount: fallos,
+        ...(bloquear
+          ? {
+              lockedUntil: new Date(Date.now() + env.LOGIN_LOCKOUT_WINDOW_MINUTES * 60 * 1000),
+            }
+          : {}),
+      })
       .where(eq(users.id, user.id));
     await recordSecurityEvent({
       type: "LOGIN_FAILED",

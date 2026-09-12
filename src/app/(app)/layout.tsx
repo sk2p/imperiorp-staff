@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { LiveRefresh } from "@/components/layout/live-refresh";
 import { AppShell } from "@/components/layout/shell";
 import { CsrfProvider } from "@/components/ui/interactive";
 import { getAuthContext } from "@/lib/auth/context";
@@ -22,6 +23,7 @@ export default async function AppLayout({ children }: { readonly children: React
 
   return (
     <CsrfProvider token={csrfTokenFor(context.session.id)}>
+      <LiveRefresh />
       <AppShell viewer={context.viewer}>{children}</AppShell>
     </CsrfProvider>
   );
