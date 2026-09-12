@@ -851,8 +851,14 @@ export async function deleteWeekPreflight(
   });
 }
 
-/** El veredicto y su explicación, a partir de los recuentos crudos. */
-function resolverPreflight(conteos: {
+/**
+ * El veredicto y su explicación, a partir de los recuentos crudos.
+ *
+ * Se exporta para poder probarlo sin base de datos. Es la regla que decide si
+ * algo se borra para siempre: conviene que tenga un test que falle en voz alta
+ * el día que alguien la afloje.
+ */
+export function resolverPreflight(conteos: {
   conTiempo: number;
   marcadas: number;
   minutos: number;
