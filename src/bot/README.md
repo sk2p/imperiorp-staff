@@ -100,6 +100,24 @@ O desde **⚙️ Administración → 🔗 Vincular cuenta** en cualquier panel.
 Se guarda el número de Discord, no el nombre: los nombres se cambian y el
 número no.
 
+## Emojis
+
+Arrancan como emojis comunes. Para usar los de Imperio RP, subilos en el portal
+de desarrolladores → tu aplicación → **Emojis**, con el mismo nombre que la
+variable (`EMOJI_ENTRADA`, `EMOJI_SALIDA`, …), y después:
+
+```bash
+pnpm bot:emojis
+```
+
+Eso se los pregunta a Discord, empareja por nombre y escribe los códigos en el
+`.env`. Copiarlos a mano con veintitrés es cuestión de tiempo que se escape un
+dígito, y el error recién se ve al arrancar.
+
+Conviene que sean emojis de la **aplicación** y no del servidor: los de la
+aplicación son del bot y viajan con él cuando lo muevas al servidor real; los
+del servidor sólo funcionan mientras el bot esté en ese servidor.
+
 ## Avisos de pago
 
 Cuando alguien registra o anula un pago **en la página**, el canal de pagos se
