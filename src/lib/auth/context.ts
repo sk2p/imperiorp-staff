@@ -6,7 +6,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { staffMembers, type Session, type User } from "@/db/schema";
 import { forbidden, unauthenticated } from "@/lib/core/errors";
-import { newTraceId } from "@/lib/core/logger";
+import { logger, newTraceId } from "@/lib/core/logger";
 import {
   effectivePermissions,
   hasFullAccess,
@@ -112,12 +112,30 @@ export async function requestMetadata(): Promise<{
  */
 const staffIdentity = cache(
   async (userId: string): Promise<{ id: string; rank: string } | null> => {
-    const [row] = await db
-      .select({ id: staffMembers.id, rank: staffMembers.rank })
-      .from(staffMembers)
-      .where(and(eq(staffMembers.userId, userId), isNull(staffMembers.archivedAt)))
-      .limit(1);
-    return row ?? null;
+    try {
+      const [row] = await db
+        .select({ id: staffMembers.id, rank: staffMembers.rank })
+        .from(staffMembers)
+        .where(and(eq(staffMembers.userId, userId), isNull(staffMembers.archivedAt)))
+        .limit(1);
+      return row ?? null;
+    } catch (error) {
+      /**
+       * La columna `user_id` la agrega una migración. Entre que se despliega el
+       * código y se aplica la migración hay una ventana donde no existe, y esta
+       * consulta corre en CADA pantalla con sesión: dejar que reviente sería
+       * tirar abajo el panel entero por un adorno debajo del nombre.
+       *
+       * Sólo se tolera ese error concreto —columna inexistente—, se avisa en el
+       * log, y `/api/ready` ya marca el servicio como degradado mientras la
+       * migración siga pendiente. Cualquier otro error sale como siempre.
+       */
+      const code = (error as { code?: unknown }).code;
+      if (code !== "42703") throw error;
+
+      logger.warn("staff_members.user_id no existe todavía: falta aplicar una migración");
+      return null;
+    }
   },
 );
 
