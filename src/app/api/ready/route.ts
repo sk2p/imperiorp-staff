@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { checkDatabaseHealth } from "@/db";
+import { pendingMigrations } from "@/db/migrate";
 import { assertProductionSafety } from "@/lib/core/env";
 import { secretFingerprint } from "@/lib/core/fingerprint";
 
@@ -16,7 +17,17 @@ export const dynamic = "force-dynamic";
 export async function GET(): Promise<NextResponse> {
   const database = await checkDatabaseHealth();
   const configProblems = assertProductionSafety();
-  const ready = database.ok && configProblems.length === 0;
+
+  /**
+   * Migraciones pendientes.
+   *
+   * Donde las migraciones no corren al arrancar, el código nuevo puede quedar
+   * desplegado contra un esquema viejo: la aplicación arranca, responde, y
+   * revienta recién cuando alguien abre una pantalla que usa la columna que
+   * falta. Esto lo hace visible sin tener que entrar a la aplicación.
+   */
+  const migrations = database.ok ? await pendingMigrations() : null;
+  const ready = database.ok && configProblems.length === 0 && (migrations?.pending ?? 0) === 0;
 
   return NextResponse.json(
     {
@@ -40,6 +51,13 @@ export async function GET(): Promise<NextResponse> {
            */
           secretFingerprint: secretFingerprint(),
         },
+        migrations: migrations
+          ? {
+              ok: migrations.pending === 0,
+              applied: migrations.applied,
+              pending: migrations.pending,
+            }
+          : { ok: false, applied: 0, pending: 0 },
       },
       timestamp: new Date().toISOString(),
     },

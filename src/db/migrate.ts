@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { migrate as migrateNodePg } from "drizzle-orm/node-postgres/migrator";
 import path from "node:path";
 
@@ -34,4 +35,38 @@ if (isDirectRun) {
       logger.error("Fallaron las migraciones", { error });
       process.exit(1);
     });
+}
+
+/**
+ * Cuántas migraciones hay escritas y cuántas aplicó esta base.
+ *
+ * Drizzle guarda una fila por migración en `drizzle.__drizzle_migrations`.
+ * Comparar esa cuenta contra los archivos del journal alcanza para saber si el
+ * esquema está al día, sin pedir permisos especiales ni exponer nada.
+ */
+export async function pendingMigrations(): Promise<{ applied: number; pending: number }> {
+  const journalPath = path.join(process.cwd(), "drizzle", "meta", "_journal.json");
+
+  let total = 0;
+  try {
+    const { readFile } = await import("node:fs/promises");
+    const journal = JSON.parse(await readFile(journalPath, "utf8")) as {
+      entries?: readonly unknown[];
+    };
+    total = journal.entries?.length ?? 0;
+  } catch {
+    // Sin journal no hay nada que comparar: se informa cero y no se falla.
+    return { applied: 0, pending: 0 };
+  }
+
+  try {
+    const result = await db.execute(
+      sql`select count(*)::int as aplicadas from drizzle.__drizzle_migrations`,
+    );
+    const applied = Number(result.rows[0]?.aplicadas ?? 0);
+    return { applied, pending: Math.max(0, total - applied) };
+  } catch {
+    // La tabla no existe: ninguna migración corrió todavía.
+    return { applied: 0, pending: total };
+  }
 }
