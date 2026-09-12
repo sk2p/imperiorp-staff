@@ -13,6 +13,7 @@ import { formatDuration, localDateTime } from "@/domain/clock";
 import { GROUP_DEFINITIONS, type StaffGroup } from "@/domain/groups";
 import { formatMoney } from "@/domain/money";
 import { COLOR, GROUP_COLOR } from "./config";
+import { emoji, emojiBoton } from "./emojis";
 import type { ActiveShift, CloseResult, DailyLine } from "@/server/shifts";
 
 /**
@@ -22,9 +23,11 @@ import type { ActiveShift, CloseResult, DailyLine } from "@/server/shifts";
  * separadores y —esto es lo que no se podía con los embeds viejos— los botones
  * adentro del mismo bloque, no colgando abajo. Un panel es una sola pieza.
  *
- * Una regla del formato que conviene tener presente: con Components V2 el
- * mensaje NO puede llevar `content` ni `embeds`. Todo es componentes, o Discord
- * rechaza el mensaje.
+ * Dos reglas del formato que conviene tener presentes:
+ *   · Con Components V2 el mensaje NO puede llevar `content` ni `embeds`. Todo
+ *     es componentes, o Discord rechaza el mensaje.
+ *   · Ningún emoji se escribe acá a mano: todos salen de `emojis.ts`, para que
+ *     cambiarlos por los personalizados de Imperio RP sea editar el `.env`.
  */
 
 function texto(contenido: string): TextDisplayBuilder {
@@ -48,6 +51,13 @@ export function etiqueta(rank: string, name: string): string {
   return "`[" + rank + "]` **" + name + "**";
 }
 
+/** El emoji que identifica a cada bloque de staff. */
+function emojiGrupo(group: StaffGroup): string {
+  if (group === "HIGH_STAFF") return emoji("HIGH");
+  if (group === "MID_STAFF") return emoji("MID");
+  return emoji("LOW");
+}
+
 /* -------------------------------------------------------------------------- */
 /* Panel de fichaje                                                           */
 /* -------------------------------------------------------------------------- */
@@ -66,7 +76,9 @@ export function panelFichaje(group: StaffGroup) {
     .setAccentColor(GROUP_COLOR[group])
     .addTextDisplayComponents(
       texto(
-        "## 🕒 Fichaje · " +
+        "## " +
+          emojiGrupo(group) +
+          " Fichaje · " +
           definicion.label +
           "\nRegistrá tu **entrada** cuando empieces y tu **salida** cuando termines.\n" +
           "El tiempo se cuenta solo y va directo a la planilla de horas.",
@@ -84,27 +96,27 @@ export function panelFichaje(group: StaffGroup) {
         new ButtonBuilder()
           .setCustomId("fichaje:entrada:" + group)
           .setLabel("Entrada")
-          .setEmoji("🟢")
+          .setEmoji(emojiBoton("ENTRADA"))
           .setStyle(ButtonStyle.Success),
         new ButtonBuilder()
           .setCustomId("fichaje:salida:" + group)
           .setLabel("Salida")
-          .setEmoji("🔴")
+          .setEmoji(emojiBoton("SALIDA"))
           .setStyle(ButtonStyle.Danger),
         new ButtonBuilder()
           .setCustomId("fichaje:activos:" + group)
           .setLabel("Activos")
-          .setEmoji("👥")
+          .setEmoji(emojiBoton("ACTIVOS"))
           .setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
           .setCustomId("fichaje:mias:" + group)
           .setLabel("Mis horas")
-          .setEmoji("📊")
+          .setEmoji(emojiBoton("HORAS"))
           .setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
           .setCustomId("fichaje:admin:" + group)
           .setLabel("Administración")
-          .setEmoji("⚙️")
+          .setEmoji(emojiBoton("ADMIN"))
           .setStyle(ButtonStyle.Primary),
       ),
     );
@@ -114,16 +126,30 @@ export function panelFichaje(group: StaffGroup) {
 /* Respuestas de entrada y salida                                             */
 /* -------------------------------------------------------------------------- */
 
-export function avisoEntrada(rank: string, name: string, desde: Date) {
+export function avisoEntrada(
+  rank: string,
+  name: string,
+  desde: Date,
+  discordUserId?: string | undefined,
+) {
+  const hora = localDateTime(desde).split(" ")[1] ?? "";
+
   return new ContainerBuilder()
     .setAccentColor(COLOR.entrada)
     .addTextDisplayComponents(
       texto(
-        "### 🟢 Fichaje abierto\n" +
+        "### " +
+          emoji("ENTRADA") +
+          " Fichaje abierto\n" +
+          emoji("EXITO") +
+          " Tu entrada quedó registrada, " +
+          (discordUserId ? "<@" + discordUserId + "> " : "") +
           etiqueta(rank, name) +
-          "\nEntrada registrada a las **" +
-          localDateTime(desde).split(" ")[1] +
-          "**.\n\n-# Acordate de darle a **Salida** cuando termines, o el tiempo se sigue contando.",
+          ".\n\n" +
+          emoji("RELOJ") +
+          " Desde las **" +
+          hora +
+          "**. El tiempo se cuenta solo hasta que le des a **Salida**.",
       ),
     );
 }
@@ -133,11 +159,15 @@ export function avisoSalida(resultado: CloseResult) {
     .setAccentColor(COLOR.salida)
     .addTextDisplayComponents(
       texto(
-        "### 🔴 Fichaje cerrado\n" +
+        "### " +
+          emoji("SALIDA") +
+          " Fichaje cerrado\n" +
           etiqueta(resultado.member.rank, resultado.member.name) +
-          "\n**Duración:** `" +
+          "\n\n" +
+          emoji("RELOJ") +
+          " **Duración:** `" +
           resultado.duration +
-          "`\n" +
+          "`\n-# " +
           localDateTime(resultado.startedAt) +
           " → " +
           localDateTime(resultado.endedAt),
@@ -162,7 +192,8 @@ export function avisoSalida(resultado: CloseResult) {
       .addSeparatorComponents(separador())
       .addTextDisplayComponents(
         texto(
-          "⚠️ **" +
+          emoji("ERROR") +
+            " **" +
             resultado.skipped.join(", ") +
             "** no entra en ningún período abierto, así que ese tiempo no se cargó a la planilla. " +
             "Avisale a un administrador para que lo cargue a mano.",
@@ -177,17 +208,26 @@ export function avisoSalida(resultado: CloseResult) {
 export function registroFichaje(resultado: CloseResult) {
   const automatico = resultado.reason === "automatico";
   const forzado = resultado.reason === "forzado";
+  const fecha = localDateTime(resultado.endedAt).split(" ")[0] ?? "";
 
-  const contenedor = new ContainerBuilder()
+  return new ContainerBuilder()
     .setAccentColor(automatico ? COLOR.aviso : GROUP_COLOR[resultado.member.group])
     .addTextDisplayComponents(
       texto(
-        "### 📝 Fichaje cerrado\n" +
-          "👤 **Staff**\n" +
+        "### " +
+          emoji("FICHAJE") +
+          " Fichaje cerrado\n" +
+          emoji("STAFF") +
+          " **Staff**\n" +
           etiqueta(resultado.member.rank, resultado.member.name) +
-          "\n\n📅 **Fecha**\n" +
-          localDateTime(resultado.endedAt).split(" ")[0] +
-          "\n\n⏱️ **Horas totales**\n`" +
+          (resultado.member.discordUserId ? " <@" + resultado.member.discordUserId + ">" : "") +
+          "\n\n" +
+          emoji("CALENDARIO") +
+          " **Fecha**\n" +
+          fecha +
+          "\n\n" +
+          emoji("RELOJ") +
+          " **Horas totales**\n`" +
           resultado.duration +
           "`",
       ),
@@ -200,13 +240,13 @@ export function registroFichaje(resultado: CloseResult) {
           " → " +
           localDateTime(resultado.endedAt) +
           (automatico
-            ? "\n-# ⚠️ Cerrado automáticamente: quedó abierto más de 12 horas. El tiempo puede no ser real."
+            ? "\n-# " +
+              emoji("ERROR") +
+              " Cerrado automáticamente: quedó abierto más de 12 horas. El tiempo puede no ser real."
             : "") +
-          (forzado ? "\n-# ⚙️ Cerrado por un administrador." : ""),
+          (forzado ? "\n-# " + emoji("ADMIN") + " Cerrado por un administrador." : ""),
       ),
     );
-
-  return contenedor;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -218,12 +258,12 @@ export function listaActivos(activos: readonly ActiveShift[], titulo: string, co
 
   if (activos.length === 0) {
     return contenedor.addTextDisplayComponents(
-      texto("### 👥 " + titulo + "\nNo hay nadie fichado en este momento."),
+      texto("### " + emoji("ACTIVOS") + " " + titulo + "\nNo hay nadie fichado en este momento."),
     );
   }
 
   return contenedor
-    .addTextDisplayComponents(texto("### 👥 " + titulo))
+    .addTextDisplayComponents(texto("### " + emoji("ACTIVOS") + " " + titulo))
     .addSeparatorComponents(separador())
     .addTextDisplayComponents(
       texto(
@@ -264,7 +304,9 @@ export function reporteDiario(input: {
     .setAccentColor(input.color)
     .addTextDisplayComponents(
       texto(
-        (input.global ? "## 🌎 " : "## 📊 ") +
+        "## " +
+          (input.global ? emoji("GLOBAL") : emoji("REPORTE")) +
+          " " +
           input.titulo +
           "\nActividad del día **" +
           legible +
@@ -283,8 +325,8 @@ export function reporteDiario(input: {
 
   /**
    * Discord corta un bloque de texto a los 4000 caracteres. Con cuarenta
-   * personas eso alcanza de sobra, pero si algún día no alcanzara es mejor
-   * partir en varios bloques que perder la cola del listado sin avisar.
+   * personas alcanza de sobra, pero si algún día no alcanzara es mejor partir
+   * en varios bloques que perder la cola del listado sin avisar.
    */
   const lineas = input.lineas.map(
     (l) => "· " + etiqueta(l.rank, l.name) + ": `" + formatDuration(l.seconds) + "`",
@@ -326,52 +368,6 @@ function partirEnBloques(lineas: readonly string[], maximo: number): string[] {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Pagos                                                                      */
-/* -------------------------------------------------------------------------- */
-
-export function avisoPago(input: {
-  readonly pagador: string;
-  readonly staff: string;
-  readonly rank: string;
-  readonly monto: number;
-  readonly periodo: string;
-  readonly minutos: string;
-  readonly anulado?: boolean;
-  readonly motivo?: string | null;
-}) {
-  const contenedor = new ContainerBuilder()
-    .setAccentColor(input.anulado ? COLOR.salida : COLOR.pago)
-    .addTextDisplayComponents(
-      texto(
-        (input.anulado ? "### ❌ Pago anulado\n" : "### 💸 Pago registrado\n") +
-          "👤 **Staff**\n" +
-          etiqueta(input.rank, input.staff) +
-          "\n\n💰 **Monto**\n`" +
-          formatMoney(input.monto) +
-          "`\n\n⏱️ **Horas del período**\n`" +
-          input.minutos +
-          "`",
-      ),
-    )
-    .addSeparatorComponents(separador())
-    .addTextDisplayComponents(
-      texto(
-        "-# " +
-          (input.anulado ? "Anulado por" : "Registrado por") +
-          " **" +
-          input.pagador +
-          "** · período " +
-          input.periodo +
-          " · " +
-          localDateTime(new Date()) +
-          (input.motivo ? "\n-# Motivo: " + input.motivo : ""),
-      ),
-    );
-
-  return contenedor;
-}
-
-/* -------------------------------------------------------------------------- */
 /* Mensajes sueltos                                                           */
 /* -------------------------------------------------------------------------- */
 
@@ -381,6 +377,17 @@ export function aviso(titulo: string, cuerpo: string, color: number = COLOR.neut
     .addTextDisplayComponents(texto("### " + titulo + "\n" + cuerpo));
 }
 
+/**
+ * El mensaje de "no podés".
+ *
+ * Dice **sin permiso**, que es lo que la persona necesita entender, y recién
+ * después explica el motivo. Antes decía "no estás vinculado" para todo, que a
+ * un moderador que se equivocó de panel no le explicaba nada.
+ */
+export function sinPermiso(motivo: string) {
+  return aviso(emoji("DENEGADO") + " No tenés permiso", motivo, COLOR.imperial);
+}
+
 export function error(cuerpo: string) {
-  return aviso("⚠️ No se pudo", cuerpo, COLOR.imperial);
+  return aviso(emoji("ERROR") + " No se pudo", cuerpo, COLOR.imperial);
 }

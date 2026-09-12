@@ -41,6 +41,7 @@ import {
   unlinkDiscordAccount,
   type ShiftMember,
 } from "@/server/shifts";
+import { notifyPayment } from "@/server/discord-notify";
 import { COLOR, GROUP_COLOR, botConfig, groupChannels } from "./config";
 import { startScheduler } from "./tasks";
 import {
@@ -49,6 +50,7 @@ import {
   avisoSalida,
   error as errorUi,
   etiqueta,
+  sinPermiso,
   listaActivos,
   panelFichaje,
   registroFichaje,
@@ -162,9 +164,11 @@ async function requerirFicha(interaction: RepliableInteraction): Promise<ShiftMe
 
   await responder(
     interaction,
-    errorUi(
-      "Tu cuenta de Discord no está vinculada a ninguna ficha del staff.\n\n" +
-        "Pedile a un administrador que use **⚙️ Administración → Vincular** o el comando `/vincular`.",
+    sinPermiso(
+      "Tu cuenta de Discord no está vinculada a ninguna ficha del staff, así que el sistema no " +
+        "sabe a quién cargarle las horas.\n\n" +
+        "Pedile a un **ADM** que te vincule con `/vincular`. Si administrás este servidor de " +
+        "Discord, podés hacerlo vos mismo.",
     ),
   );
   return null;
@@ -196,7 +200,7 @@ async function manejarBoton(interaction: ButtonInteraction): Promise<void> {
   if (group && member.group !== group) {
     await responder(
       interaction,
-      errorUi(
+      sinPermiso(
         "Este panel es de **" +
           GROUP_DEFINITIONS[group].label +
           "** y vos sos " +
@@ -246,7 +250,10 @@ async function accionEntrada(
     discordUsername: interaction.user.username,
   });
 
-  await responder(interaction, avisoEntrada(member.rank, member.name, resultado.startedAt));
+  await responder(
+    interaction,
+    avisoEntrada(member.rank, member.name, resultado.startedAt, interaction.user.id),
+  );
 }
 
 async function accionSalida(interaction: RepliableInteraction, member: ShiftMember): Promise<void> {
@@ -324,8 +331,9 @@ async function panelAdministracion(
   if (!ok) {
     await responder(
       interaction,
-      errorUi(
-        "La administración del fichaje es de **ADM** para arriba, o de quien administre el servidor de Discord.",
+      sinPermiso(
+        "La administración del fichaje es de **ADM** para arriba, o de quien administre el " +
+          "servidor de Discord.",
       ),
     );
     return;
@@ -370,7 +378,7 @@ async function accionAdministracion(
 ): Promise<void> {
   const { ok } = await puedeAdministrar(interaction);
   if (!ok) {
-    await responder(interaction, errorUi("Necesitás rango **ADM** o superior."));
+    await responder(interaction, sinPermiso("Esto es de rango **ADM** para arriba."));
     return;
   }
 
@@ -569,6 +577,9 @@ const comandos = [
       option.setName("usuario").setDescription("Cuenta de Discord").setRequired(true),
     ),
   new SlashCommandBuilder()
+    .setName("probar-pagos")
+    .setDescription("Manda un aviso de prueba al canal de pagos para verificar la configuración"),
+  new SlashCommandBuilder()
     .setName("mis-horas")
     .setDescription("Muestra tus horas del período en curso"),
   new SlashCommandBuilder()
@@ -593,8 +604,47 @@ async function manejarComando(interaction: ChatInputCommandInteraction): Promise
   if (!ok) {
     await responder(
       interaction,
-      errorUi(
+      sinPermiso(
         "Este comando es de **ADM** para arriba, o de quien administre el servidor de Discord.",
+      ),
+    );
+    return;
+  }
+
+  if (interaction.commandName === "probar-pagos") {
+    /**
+     * El aviso de pago lo manda la PÁGINA, no el bot, así que cuando no llega
+     * no hay forma de saber desde Discord si falta el token, si el canal está
+     * mal o si el bot no tiene permiso para escribir ahí. Esto manda uno de
+     * prueba por exactamente el mismo camino.
+     */
+    if (!process.env.DISCORD_PAGOS?.trim()) {
+      await responder(
+        interaction,
+        errorUi(
+          "No hay `DISCORD_PAGOS` configurado.\n\n" +
+            "Poné el id del canal de pagos en el `.env`, y también en Vercel para que ande en producción.",
+        ),
+      );
+      return;
+    }
+
+    await notifyPayment({
+      staffName: "Prueba de configuración",
+      rank: "ADM++",
+      amount: 1_000_000,
+      minutes: 60,
+      period: "prueba",
+      actor: interaction.user.username,
+    });
+
+    await responder(
+      interaction,
+      aviso(
+        "Aviso de prueba enviado",
+        "Si no aparece nada en el canal de pagos, revisá que el bot esté en ese canal y tenga " +
+          "permiso para escribir. El detalle del error queda en la consola donde corre el bot.",
+        COLOR.entrada,
       ),
     );
     return;

@@ -51,6 +51,19 @@ export async function GET(): Promise<NextResponse> {
            */
           secretFingerprint: secretFingerprint(),
         },
+        /**
+         * Avisos de pago hacia Discord.
+         *
+         * Si falta cualquiera de las dos variables, la página registra el pago
+         * igual pero no avisa a nadie, en silencio. Eso es imposible de
+         * diagnosticar desde afuera, así que se informa acá. No expone nada: no
+         * dice el token ni el canal, sólo si están.
+         */
+        discord: {
+          ok: Boolean(process.env.DISCORD_TOKEN?.trim() && process.env.DISCORD_PAGOS?.trim()),
+          token: Boolean(process.env.DISCORD_TOKEN?.trim()),
+          canalPagos: Boolean(process.env.DISCORD_PAGOS?.trim()),
+        },
         migrations: migrations
           ? {
               ok: migrations.pending === 0,
