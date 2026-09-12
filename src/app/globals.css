@@ -1737,3 +1737,121 @@ svg > .chart-col:hover {
     opacity: 1;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Avisos
+   -------------------------------------------------------------------------- */
+
+/* Entran deslizándose desde el costado en escritorio y desde abajo en el
+   teléfono, que es de donde el ojo los espera en cada caso. */
+.aviso-entra {
+  animation: aviso-sube 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (min-width: 640px) {
+  .aviso-entra {
+    animation-name: aviso-entra-lado;
+  }
+}
+
+@keyframes aviso-sube {
+  from {
+    opacity: 0;
+    transform: translateY(1rem) scale(0.97);
+  }
+}
+
+@keyframes aviso-entra-lado {
+  from {
+    opacity: 0;
+    transform: translateX(1.5rem) scale(0.97);
+  }
+}
+
+/* La cuenta regresiva. Dura lo mismo que el aviso: cuando llega a cero, se va. */
+.aviso-tiempo {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 2px;
+  background: currentColor;
+  opacity: 0.4;
+  transform-origin: left;
+  animation: aviso-vacia 6s linear forwards;
+}
+
+@keyframes aviso-vacia {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Diálogos
+   -------------------------------------------------------------------------- */
+
+/* El panel crece desde un poco más chico, y el fondo se oscurece con él. Sin
+   esto el diálogo aparece de golpe y uno pierde de dónde salió. */
+dialog[open] {
+  animation: dialogo-entra 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+dialog[open]::backdrop {
+  animation: dialogo-fondo 220ms ease both;
+}
+
+@keyframes dialogo-entra {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem) scale(0.97);
+  }
+}
+
+@keyframes dialogo-fondo {
+  from {
+    opacity: 0;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Campos
+   -------------------------------------------------------------------------- */
+
+/* Al enfocarse, el campo se rodea de un halo imperial además del borde. En una
+   pantalla oscura y llena de cajas, el borde solo casi no se distingue. */
+/* Va con `:focus` y no con `:focus-visible`: en un campo de texto el halo se
+   quiere ver también al hacer click, no sólo al llegar con el teclado. */
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--color-imperial-500);
+  box-shadow:
+    0 0 0 3px rgb(229 22 44 / 0.16),
+    inset 0 1px 2px rgb(0 0 0 / 0.35);
+}
+
+/* --------------------------------------------------------------------------
+   Barra inferior del teléfono
+   -------------------------------------------------------------------------- */
+
+/* El ítem activo se apoya sobre una pastilla, en vez de sólo pintarse de rojo.
+   Con cinco íconos iguales, el color solo no alcanza para ubicarse. */
+.safe-bottom a[aria-current="page"] {
+  position: relative;
+}
+
+.safe-bottom a[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  inset: 0.125rem 0.375rem;
+  border-radius: 10px;
+  background: rgb(229 22 44 / 0.1);
+  border: 1px solid rgb(229 22 44 / 0.22);
+}
+
+.safe-bottom a[aria-current="page"] > * {
+  position: relative;
+}

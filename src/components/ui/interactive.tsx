@@ -87,18 +87,30 @@ export function ToastProvider({ children }: { readonly children: ReactNode }) {
           <div
             key={toast.id}
             className={cn(
-              "anim-pop pointer-events-auto w-full max-w-sm rounded-xl border px-4 py-3 text-sm shadow-[0_12px_40px_-12px_rgb(0_0_0/0.8)] backdrop-blur-md",
+              "aviso-entra pointer-events-auto relative w-full max-w-sm overflow-hidden rounded-xl border px-4 py-3 text-sm shadow-[0_12px_40px_-12px_rgb(0_0_0/0.8)] backdrop-blur-md",
               toast.tone === "success"
                 ? "border-jade-500/35 bg-jade-500/[0.12] text-jade-100"
                 : "border-imperial-500/40 bg-imperial-500/[0.12] text-imperial-100",
             )}
           >
             <div className="flex items-start gap-2.5">
-              <span aria-hidden className="mt-0.5 text-base leading-none">
+              <span
+                aria-hidden
+                className={cn(
+                  "mt-px flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[0.625rem] font-bold",
+                  toast.tone === "success"
+                    ? "bg-jade-500/25 text-jade-300"
+                    : "bg-imperial-500/25 text-imperial-300",
+                )}
+              >
                 {toast.tone === "success" ? "✓" : "!"}
               </span>
               <p className="leading-relaxed">{toast.message}</p>
             </div>
+
+            {/* La barra se vacía en los mismos seis segundos que tarda en
+                desaparecer: se ve cuánto queda, sin tener que adivinar. */}
+            <span aria-hidden className="aviso-tiempo" />
           </div>
         ))}
       </div>
