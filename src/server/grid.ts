@@ -1,7 +1,14 @@
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 
 import { db, withTransaction, type Transaction } from "@/db";
-import { hourEntries, rankRates, staffMembers, weeklyStaffRecords, type Week } from "@/db/schema";
+import {
+  hourEntries,
+  rankRates,
+  staffMembers,
+  weeklyStaffRecords,
+  weeks as weeksTable,
+  type Week,
+} from "@/db/schema";
 import type { ActorContext } from "@/lib/auth/context";
 import { businessRule, concurrency, notFound, validation } from "@/lib/core/errors";
 import {
@@ -147,6 +154,10 @@ export async function getWeekGrid(week: Week): Promise<WeekGrid> {
     };
   });
 
+  /** El orden manual, en un índice. Buscarlo en la lista dentro del
+      comparador costaba una recorrida entera por comparación. */
+  const manualOrder = new Map(records.map((record) => [record.staffMemberId, record.displayOrder]));
+
   /**
    * Orden dentro de cada grupo: primero el rango más alto (DG antes que SUBDG,
    * ADM++ antes que ADM+), y entre iguales manda el orden manual que definió el
@@ -156,33 +167,56 @@ export async function getWeekGrid(week: Week): Promise<WeekGrid> {
     const tierDelta = rankTier(b.rank) - rankTier(a.rank);
     if (tierDelta !== 0) return tierDelta;
 
-    const orderA = records.find((r) => r.staffMemberId === a.staffMemberId)?.displayOrder ?? 0;
-    const orderB = records.find((r) => r.staffMemberId === b.staffMemberId)?.displayOrder ?? 0;
+    const orderA = manualOrder.get(a.staffMemberId) ?? 0;
+    const orderB = manualOrder.get(b.staffMemberId) ?? 0;
     if (orderA !== orderB) return orderA - orderB;
 
     return a.name.localeCompare(b.name, "es");
   };
 
-  const groups: GridGroup[] = (["HIGH_STAFF", "MID_STAFF", "LOW_STAFF"] as const)
-    .map((group) => {
-      const groupRows = rows.filter((row) => row.group === group).sort(byRankThenManual);
-      return {
-        group,
-        hourlyRate: groupRows[0]?.hourlyRate ?? 0,
-        memberCount: groupRows.length,
-        totalMinutes: groupRows.reduce((sum, row) => sum + row.totalMinutes, 0),
-        totalAmount: groupRows.reduce((sum, row) => sum + row.amount, 0),
-        rows: groupRows,
-      };
-    })
-    .filter((group) => group.rows.length > 0);
+  // Una sola recorrida reparte las filas y suma los totales, en vez de tres
+  // filtrados más dos reducciones por grupo.
+  const buckets = new Map<StaffGroup, GridRow[]>();
+  let totalMinutes = 0;
+  let totalAmount = 0;
+  for (const row of rows) {
+    const bucket = buckets.get(row.group);
+    if (bucket) bucket.push(row);
+    else buckets.set(row.group, [row]);
+    totalMinutes += row.totalMinutes;
+    totalAmount += row.amount;
+  }
+
+  const groups: GridGroup[] = [];
+  for (const group of ["HIGH_STAFF", "MID_STAFF", "LOW_STAFF"] as const) {
+    const groupRows = buckets.get(group);
+    if (!groupRows || groupRows.length === 0) continue;
+
+    groupRows.sort(byRankThenManual);
+
+    let groupMinutes = 0;
+    let groupAmount = 0;
+    for (const row of groupRows) {
+      groupMinutes += row.totalMinutes;
+      groupAmount += row.amount;
+    }
+
+    groups.push({
+      group,
+      hourlyRate: groupRows[0]?.hourlyRate ?? 0,
+      memberCount: groupRows.length,
+      totalMinutes: groupMinutes,
+      totalAmount: groupAmount,
+      rows: groupRows,
+    });
+  }
 
   return {
     weekId: week.id,
     days,
     groups,
-    totalMinutes: rows.reduce((sum, row) => sum + row.totalMinutes, 0),
-    totalAmount: rows.reduce((sum, row) => sum + row.amount, 0),
+    totalMinutes,
+    totalAmount,
     memberCount: rows.length,
     editable: week.status === "open",
   };
@@ -565,3 +599,65 @@ export async function resetWeekHours(
 }
 
 export { asc };
+
+/* -------------------------------------------------------------------------- */
+/* Incorporación a un período ya empezado                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Suma a alguien a un período en curso y marca los días anteriores a su ingreso.
+ *
+ * Si se une un jueves, el lunes a miércoles no quedan en 0:00 —que se leería
+ * como "no trabajó"— sino como "todavía no estaba". Es la diferencia entre
+ * alguien que faltó y alguien que ni siquiera formaba parte del staff.
+ *
+ * Se llama al dar de alta a un miembro y al incorporarlo a mano al período.
+ */
+export async function joinStaffToOpenWeek(
+  tx: Transaction,
+  staffMemberId: string,
+  today: string,
+): Promise<{ weekId: string; markedDays: number } | null> {
+  const [week] = await tx
+    .select()
+    .from(weeksTable)
+    .where(eq(weeksTable.status, "open"))
+    .orderBy(sql`start_date desc`)
+    .limit(1);
+
+  if (!week) return null;
+
+  await tx.execute(sql`
+    insert into weekly_staff_records (
+      week_id, staff_member_id, staff_name_snapshot, rank_snapshot, category_snapshot,
+      hourly_rate_snapshot, total_minutes, calculated_amount, entry_count
+    )
+    select ${week.id}::uuid, s.id, s.name, s.rank, s.category, r.rate_per_hour, 0, 0, 0
+    from staff_members s
+    join rank_rates r on r.rank = s.rank
+    where s.id = ${staffMemberId}::uuid
+    on conflict (week_id, staff_member_id) do nothing
+  `);
+
+  // Los días del período anteriores a hoy quedan marcados.
+  const previousDays = eachDayOfPeriod(week.startDate, week.endDate).filter((day) => day < today);
+
+  for (const day of previousDays) {
+    await tx
+      .insert(hourEntries)
+      .values({
+        staffMemberId,
+        weekId: week.id,
+        workDate: day,
+        minutes: 0,
+        status: "no_ingresado",
+        recordedBy: null,
+        recordedByUsername: "sistema",
+      })
+      .onConflictDoNothing();
+  }
+
+  await recalculateWeekRecords(tx, week.id);
+
+  return { weekId: week.id, markedDays: previousDays.length };
+}

@@ -312,10 +312,10 @@ export const hourEntries = pgTable(
     reason: varchar("reason", { length: 200 }),
 
     /**
-     * Estado del DÍA: normal | inactivo | justificado | anulado.
+     * Estado del DÍA: normal | inactivo | justificado | anulado | no_ingresado.
      * Se marca día por día porque una ausencia justificada es de un día
      * concreto, no de la semana entera. Sólo los días en `normal` suman horas
-     * y se pagan.
+     * y se pagan. Los valores válidos los define `DAY_STATUSES`.
      */
     status: varchar("status", { length: 16 }).notNull().default("normal"),
 

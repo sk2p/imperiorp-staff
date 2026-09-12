@@ -11,6 +11,7 @@ export const metadata: Metadata = {
   description:
     "Sistema interno de Imperio RP para el registro de horas, liquidaciones semanales, pagos y auditoría del staff.",
   applicationName: "Imperio RP Staff",
+  icons: { icon: "/imperiorplogo.webp", apple: "/imperiorplogo.webp" },
   // Es una herramienta interna: no debe aparecer en buscadores.
   robots: { index: false, follow: false, nocache: true },
   formatDetection: { telephone: false, date: false, address: false, email: false },

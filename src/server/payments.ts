@@ -1,9 +1,20 @@
+import { randomUUID } from "node:crypto";
+
 import { and, asc, desc, eq, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { db, withSerializableTransaction, withTransaction, type Transaction } from "@/db";
-import { payments, staffMembers, weeklyStaffRecords, weeks, type Payment } from "@/db/schema";
+import {
+  payments,
+  rankRates,
+  staffMembers,
+  weeklyStaffRecords,
+  weeks,
+  type Payment,
+} from "@/db/schema";
 import type { ActorContext } from "@/lib/auth/context";
 import { businessRule, concurrency, conflict, notFound, validation } from "@/lib/core/errors";
+import { DEFAULT_RANK_COLORS, GROUP_LIST, groupForRank, type StaffGroup } from "@/domain/groups";
 import { formatMoney } from "@/domain/money";
+import { RANK_DEFINITIONS, isStaffRank } from "@/domain/ranks";
 import { formatPeriodLabel } from "@/domain/periods";
 import { formatMinutes } from "@/domain/time";
 import { containsPattern, offsetFor, paginate, type Paginated } from "@/validation/common";
@@ -605,4 +616,206 @@ export async function getStaffPayments(staffMemberId: string, limit = 26) {
     .where(eq(payments.staffMemberId, staffMemberId))
     .orderBy(desc(payments.paidAt))
     .limit(limit);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Tablero de pagos por categoría                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * El tablero que se usa para pagar.
+ *
+ * Es la misma liquidación de siempre, reordenada como se paga en la práctica:
+ * por bloque —High, Mid, Low—, de mayor a menor rango, con las horas y el
+ * importe de cada uno a la vista. El estado se reduce a dos: falta pagar o
+ * pagado, que es la única pregunta que se hace quien está repartiendo.
+ */
+export interface PaymentBoardRow {
+  readonly staffMemberId: string;
+  readonly recordId: string;
+  readonly name: string;
+  readonly rank: string;
+  readonly rankColor: string;
+  readonly totalMinutes: number;
+  readonly amount: number;
+  readonly paid: boolean;
+  readonly paymentId: string | null;
+  readonly paymentVersion: number | null;
+  readonly paidAmount: number | null;
+  readonly paidAt: Date | null;
+  readonly paidByUsername: string | null;
+}
+
+export interface PaymentBoardGroup {
+  readonly group: StaffGroup;
+  readonly rows: readonly PaymentBoardRow[];
+  readonly totalMinutes: number;
+  readonly totalAmount: number;
+  readonly paidAmount: number;
+  readonly pendingAmount: number;
+  readonly paidCount: number;
+  readonly pendingCount: number;
+}
+
+export interface PaymentBoard {
+  readonly groups: readonly PaymentBoardGroup[];
+  readonly totalMinutes: number;
+  readonly totalAmount: number;
+  readonly paidAmount: number;
+  readonly pendingAmount: number;
+  readonly paidCount: number;
+  readonly pendingCount: number;
+  readonly memberCount: number;
+}
+
+/**
+ * `settlement` se puede pasar ya resuelto: la pantalla de pagos lo necesita
+ * también para el detalle, y traerlo dos veces sería una consulta al pedo.
+ */
+export async function getPaymentBoard(
+  weekId: string,
+  settlementRows?: readonly SettlementRow[],
+): Promise<PaymentBoard> {
+  const [settlement, colors] = await Promise.all([
+    settlementRows ?? getSettlement(weekId),
+    db.select({ rank: rankRates.rank, color: rankRates.color }).from(rankRates),
+  ]);
+
+  const colorByRank = new Map(colors.map((row) => [row.rank, row.color]));
+
+  const rows: PaymentBoardRow[] = settlement.map((row) => ({
+    staffMemberId: row.staffMemberId,
+    recordId: row.recordId,
+    name: row.name,
+    rank: row.rank,
+    rankColor: colorByRank.get(row.rank) ?? DEFAULT_RANK_COLORS[row.rank] ?? "#6f747d",
+    totalMinutes: row.totalMinutes,
+    amount: row.amount,
+    paid: row.paymentId !== null,
+    paymentId: row.paymentId,
+    paymentVersion: row.paymentVersion,
+    paidAmount: row.paidAmount,
+    paidAt: row.paidAt,
+    paidByUsername: row.paidByUsername,
+  }));
+
+  const groups = GROUP_LIST.map((definition) => {
+    const members = rows
+      .filter((row) => groupForRank(row.rank) === definition.group)
+      // De mayor a menor rango, y dentro del mismo rango por nombre: así la
+      // lista se recorre igual que la jerarquía del servidor.
+      .sort((a, b) => {
+        const tier = (rank: string) => (isStaffRank(rank) ? RANK_DEFINITIONS[rank].tier : 0);
+        const difference = tier(b.rank) - tier(a.rank);
+        return difference !== 0 ? difference : a.name.localeCompare(b.name, "es");
+      });
+
+    return {
+      group: definition.group,
+      rows: members,
+      totalMinutes: members.reduce((sum, row) => sum + row.totalMinutes, 0),
+      totalAmount: members.reduce((sum, row) => sum + row.amount, 0),
+      paidAmount: members.reduce((sum, row) => sum + (row.paid ? (row.paidAmount ?? 0) : 0), 0),
+      pendingAmount: members.reduce((sum, row) => sum + (row.paid ? 0 : row.amount), 0),
+      paidCount: members.filter((row) => row.paid).length,
+      pendingCount: members.filter((row) => !row.paid).length,
+    };
+  }).filter((group) => group.rows.length > 0);
+
+  return {
+    groups,
+    totalMinutes: groups.reduce((sum, group) => sum + group.totalMinutes, 0),
+    totalAmount: groups.reduce((sum, group) => sum + group.totalAmount, 0),
+    paidAmount: groups.reduce((sum, group) => sum + group.paidAmount, 0),
+    pendingAmount: groups.reduce((sum, group) => sum + group.pendingAmount, 0),
+    paidCount: groups.reduce((sum, group) => sum + group.paidCount, 0),
+    pendingCount: groups.reduce((sum, group) => sum + group.pendingCount, 0),
+    memberCount: rows.length,
+  };
+}
+
+/**
+ * Marca o desmarca el pago de un miembro desde el tablero.
+ *
+ * Es un atajo de un gesto sobre las operaciones de siempre: marcar crea el pago
+ * por el importe calculado, desmarcar lo anula. No es un simple color guardado
+ * aparte —eso dejaría dos versiones de la verdad—, así que hereda todo lo que
+ * ya protege a un pago: período cerrado, una liquidación vigente por persona,
+ * y asiento en la auditoría con quién y cuándo.
+ */
+export async function togglePaymentFromBoard(
+  input: { readonly weekId: string; readonly staffMemberId: string; readonly paid: boolean },
+  actor: ActorContext,
+): Promise<{ paid: boolean; name: string; amount: number }> {
+  const [current] = await db
+    .select({
+      paymentId: payments.id,
+      version: payments.version,
+      amount: payments.amount,
+      name: weeklyStaffRecords.staffNameSnapshot,
+      calculated: weeklyStaffRecords.calculatedAmount,
+    })
+    .from(weeklyStaffRecords)
+    .leftJoin(
+      payments,
+      and(
+        eq(payments.weekId, weeklyStaffRecords.weekId),
+        eq(payments.staffMemberId, weeklyStaffRecords.staffMemberId),
+        isNull(payments.voidedAt),
+      ),
+    )
+    .where(
+      and(
+        eq(weeklyStaffRecords.weekId, input.weekId),
+        eq(weeklyStaffRecords.staffMemberId, input.staffMemberId),
+      ),
+    )
+    .limit(1);
+
+  if (!current) throw notFound("La liquidación de ese miembro en este período");
+
+  if (input.paid) {
+    if (current.paymentId) {
+      return { paid: true, name: current.name, amount: current.amount ?? 0 };
+    }
+
+    await createPayment(
+      {
+        weekId: input.weekId,
+        staffMemberId: input.staffMemberId,
+        expectedAmount: current.calculated,
+        method: "in_game",
+        paymentReference: null,
+        notes: "Marcado como pagado desde el tablero de pagos.",
+        /**
+         * Clave nueva en cada marcado. Reutilizar una clave fija por persona y
+         * período parecería más prolijo, pero después de desmarcar y volver a
+         * marcar devolvería el pago ya anulado en lugar de registrar el nuevo.
+         * Contra el doble click alcanza el índice único parcial de la base.
+         */
+        idempotencyKey: randomUUID().replaceAll("-", ""),
+        allowAmountMismatch: false,
+        mismatchReason: null,
+      },
+      actor,
+    );
+
+    return { paid: true, name: current.name, amount: current.calculated };
+  }
+
+  if (!current.paymentId || current.version === null) {
+    return { paid: false, name: current.name, amount: current.calculated };
+  }
+
+  await voidPayment(
+    {
+      id: current.paymentId,
+      expectedVersion: current.version,
+      reason: "Desmarcado desde el tablero de pagos: vuelve a figurar como pendiente.",
+      confirmation: "ANULAR",
+    },
+    actor,
+  );
+
+  return { paid: false, name: current.name, amount: current.calculated };
 }

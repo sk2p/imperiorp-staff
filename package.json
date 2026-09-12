@@ -21,7 +21,8 @@
     "db:studio": "drizzle-kit studio",
     "verify": "npm run typecheck && npm run lint && npm run test",
     "db:provision": "tsx src/db/provision.ts",
-    "db:add-account": "tsx src/db/add-account.ts"
+    "db:add-account": "tsx src/db/add-account.ts",
+    "db:set-role": "tsx src/db/set-role.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "0.5.8",

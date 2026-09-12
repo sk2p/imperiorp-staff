@@ -73,7 +73,13 @@ export function isStaffGroup(value: unknown): value is StaffGroup {
 /* Estado del día                                                             */
 /* -------------------------------------------------------------------------- */
 
-export const DAY_STATUSES = ["normal", "inactivo", "justificado", "anulado"] as const;
+export const DAY_STATUSES = [
+  "normal",
+  "inactivo",
+  "justificado",
+  "anulado",
+  "no_ingresado",
+] as const;
 export type DayStatus = (typeof DAY_STATUSES)[number];
 
 export interface DayStatusDefinition {
@@ -119,6 +125,23 @@ export const DAY_STATUS_DEFINITIONS: Readonly<Record<DayStatus, DayStatusDefinit
     dot: "bg-amber-400",
     cellTint: "border-amber-400/45 bg-amber-400/15 text-amber-300",
     badge: "border-amber-400/40 bg-amber-400/12 text-amber-300",
+  },
+  /**
+   * Días anteriores al ingreso de la persona al staff.
+   *
+   * No es lo mismo que "inactivo": no faltó, todavía no estaba. Se marca solo
+   * al incorporar a alguien a un período ya empezado, y sirve para que su
+   * primera semana no parezca la de alguien que no trabajó.
+   */
+  no_ingresado: {
+    status: "no_ingresado",
+    label: "Todavía no estaba",
+    short: "No estaba",
+    description: "Se incorporó al staff después de este día.",
+    counts: false,
+    dot: "bg-chalk-600",
+    cellTint: "border-white/[0.06] bg-white/[0.02] text-chalk-700",
+    badge: "border-white/12 bg-white/[0.04] text-chalk-500",
   },
   anulado: {
     status: "anulado",

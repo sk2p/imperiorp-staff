@@ -9,7 +9,7 @@ import {
   requireFounder,
   requirePermission,
 } from "@/lib/auth/context";
-import { isAppError } from "@/lib/core/errors";
+import { forbidden, isAppError } from "@/lib/core/errors";
 import { logger, newTraceId } from "@/lib/core/logger";
 import { PERMISSIONS } from "@/domain/permissions";
 import { formatMinutes } from "@/domain/time";
@@ -28,7 +28,13 @@ import {
   updateHourEntry,
   voidHourEntry,
 } from "@/server/hours";
-import { createBulkPayments, createPayment, updatePayment, voidPayment } from "@/server/payments";
+import {
+  createBulkPayments,
+  createPayment,
+  togglePaymentFromBoard,
+  updatePayment,
+  voidPayment,
+} from "@/server/payments";
 import { addMemberToWeek, closeWeek, createWeek, reopenWeek, updateWeek } from "@/server/weeks";
 import { changeOwnPassword, createUser, resetUserPassword, updateUser } from "@/server/users";
 import { updateRankRate, updateSetting } from "@/server/settings";
@@ -51,6 +57,7 @@ import {
   bulkPaymentSchema,
   createPaymentSchema,
   updatePaymentSchema,
+  togglePaymentSchema,
   voidPaymentSchema,
 } from "@/validation/payments";
 import {
@@ -691,6 +698,44 @@ export async function voidPaymentAction(
   );
 }
 
+/**
+ * Marcar o desmarcar el pago de un miembro desde el tablero.
+ *
+ * Son dos operaciones distintas detrás de un mismo gesto, y cada una pide lo
+ * suyo: marcar exige poder registrar pagos; desmarcar, poder anularlos. Quien
+ * puede pagar pero no anular ve el error explicando por qué, en vez de un
+ * botón que a veces funciona y a veces no.
+ */
+export async function togglePaymentAction(
+  _previous: ActionState<unknown>,
+  formData: FormData,
+): Promise<ActionState<unknown>> {
+  return runAction(
+    formData,
+    {
+      permission: P.PAYMENTS_CREATE,
+      schema: togglePaymentSchema,
+      success: (result) => {
+        const value = result as { paid: boolean; name: string; amount: number };
+        return value.paid
+          ? value.name + " figura como pagado — " + formatMoney(value.amount) + "."
+          : value.name + " vuelve a figurar como pendiente.";
+      },
+    },
+    async (input, context) => {
+      if (!input.paid && !context.can(P.PAYMENTS_VOID)) {
+        throw forbidden(
+          "Podés registrar pagos, pero no anularlos. Para volver a marcar a alguien como pendiente hace falta el permiso de anulación.",
+        );
+      }
+
+      const result = await togglePaymentFromBoard(input, context.actor);
+      revalidateAll();
+      return result;
+    },
+  );
+}
+
 /* ========================================================================== */
 /* Usuarios y sistema                                                         */
 /* ========================================================================== */
@@ -763,7 +808,11 @@ export async function revokeSessionAction(
       success: "Sesión revocada.",
     },
     async (input, context) => {
-      await revokeSessionById(input.sessionId, "Revocada por un administrador", context.actor.id);
+      await revokeSessionById(
+        input.sessionId,
+        "Revocada por un administrador",
+        context.actor.id ?? undefined,
+      );
       revalidatePath("/configuracion/seguridad");
     },
   );

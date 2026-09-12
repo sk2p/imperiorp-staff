@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
@@ -27,9 +28,14 @@ function isActiveHref(pathname: string, href: string): boolean {
 function Brand({ compact = false }: { readonly compact?: boolean }) {
   return (
     <Link href="/" className="flex items-center gap-2.5 focus-visible:outline-offset-4">
-      <span className="from-imperial-500 to-imperial-700 relative flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-gradient-to-br text-white shadow-[0_4px_14px_-4px_rgb(229_22_44/0.9)]">
-        <Icon name="crown" size={17} />
-      </span>
+      <Image
+        src="/imperiorplogo.webp"
+        alt="Imperio RP"
+        width={34}
+        height={34}
+        priority
+        className="shrink-0 drop-shadow-[0_2px_8px_rgb(229_22_44/0.45)]"
+      />
       {!compact ? (
         <span className="min-w-0">
           <span className="text-chalk-50 block text-[0.8125rem] leading-tight font-bold tracking-[0.14em]">

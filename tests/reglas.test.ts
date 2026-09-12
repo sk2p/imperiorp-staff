@@ -18,6 +18,7 @@ import {
   PERMISSIONS,
 } from "@/domain/permissions";
 import { categoryForRank, compareRankChange, isStaffRank } from "@/domain/ranks";
+import { isRotationDay } from "@/server/rotation";
 
 describe("períodos de liquidación", () => {
   it("acepta el rango de ejemplo de Imperio RP", () => {
@@ -152,5 +153,37 @@ describe("permisos", () => {
     expect(canManageRole("MANAGER", "AUDITOR")).toBe(true);
     expect(canManageRole("AUDITOR", "MANAGER")).toBe(false);
     expect(canManageRole("rol-inventado", "MANAGER")).toBe(false);
+  });
+});
+
+describe("rotación automática de los sábados", () => {
+  it("reconoce el sábado y sólo el sábado", () => {
+    // 2026-09-12 es sábado; la semana entera alrededor sirve de control.
+    expect(isRotationDay("2026-09-12")).toBe(true);
+    expect(isRotationDay("2026-09-19")).toBe(true);
+    for (const day of [
+      "2026-09-06",
+      "2026-09-07",
+      "2026-09-08",
+      "2026-09-09",
+      "2026-09-10",
+      "2026-09-11",
+    ]) {
+      expect(isRotationDay(day)).toBe(false);
+    }
+  });
+
+  it("el período que abre un sábado termina el viernes siguiente", () => {
+    // La rotación abre siete días desde el sábado: sábado a viernes.
+    const fin = addDays("2026-09-12", 6);
+    expect(fin).toBe("2026-09-18");
+    expect(isRotationDay(fin)).toBe(false);
+    expect(periodLengthInDays("2026-09-12", fin)).toBe(7);
+  });
+
+  it("el día siguiente a un período vencido arranca donde terminó el anterior", () => {
+    // Si el programador falla el sábado y corre el lunes, el período nuevo no
+    // empieza el lunes: empieza el día siguiente al que cerró, sin huecos.
+    expect(addDays("2026-09-18", 1)).toBe("2026-09-19");
   });
 });

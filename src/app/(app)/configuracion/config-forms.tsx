@@ -1,12 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Icon } from "@/components/layout/icons";
 import { ActionForm, Dialog, SubmitButton } from "@/components/ui/interactive";
 import { Button, Callout, Field, Input, Select, Textarea } from "@/components/ui/primitives";
 import { formatMoney, parseMoneyInput } from "@/domain/money";
-import { ROLE_LIST, roleLabel } from "@/domain/permissions";
+import {
+  PERMISSION_GROUPS,
+  ROLE_DEFINITIONS,
+  ROLE_LIST,
+  hasFullAccess,
+  isUserRole,
+  roleLabel,
+} from "@/domain/permissions";
 import {
   createUserAction,
   resetPasswordAction,
@@ -116,6 +123,8 @@ function RoleOptions({ maxRank }: { readonly maxRank: number }) {
 }
 
 export function CreateUserDialog({ actorRank }: { readonly actorRank: number }) {
+  const [role, setRole] = useState("MANAGER");
+
   return (
     <Dialog
       title="Crear usuario del sistema"
@@ -153,10 +162,18 @@ export function CreateUserDialog({ actorRank }: { readonly actorRank: number }) 
                 error={fieldError("role")}
                 hint="Sólo podés asignar roles por debajo del tuyo."
               >
-                <Select id="role" name="role" required defaultValue="MANAGER">
+                <Select
+                  id="role"
+                  name="role"
+                  required
+                  value={role}
+                  onChange={(event) => setRole(event.target.value)}
+                >
                   <RoleOptions maxRank={actorRank} />
                 </Select>
               </Field>
+
+              <PermissionsEditor role={role} granted={[]} revoked={[]} />
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Contraseña" name="password" required error={fieldError("password")}>
@@ -212,9 +229,13 @@ export function EditUserDialog({
     readonly role: string;
     readonly active: boolean;
     readonly version: number;
+    readonly grantedPermissions: readonly string[];
+    readonly revokedPermissions: readonly string[];
   };
   readonly actorRank: number;
 }) {
+  const [role, setRole] = useState(user.role);
+
   return (
     <Dialog
       title={"Editar a " + user.username}
@@ -238,10 +259,22 @@ export function EditUserDialog({
               </Field>
 
               <Field label="Rol" name="role" required error={fieldError("role")}>
-                <Select id="role" name="role" defaultValue={user.role} required>
+                <Select
+                  id="role"
+                  name="role"
+                  value={role}
+                  onChange={(event) => setRole(event.target.value)}
+                  required
+                >
                   <RoleOptions maxRank={actorRank} />
                 </Select>
               </Field>
+
+              <PermissionsEditor
+                role={role}
+                granted={user.grantedPermissions}
+                revoked={user.revokedPermissions}
+              />
 
               <label className="text-chalk-300 flex cursor-pointer items-center gap-2.5 text-xs">
                 <input
@@ -416,5 +449,143 @@ export function SettingRow({
         </>
       )}
     </ActionForm>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Editor de permisos                                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Editor de permisos de una cuenta del panel.
+ *
+ * El modelo de abajo guarda dos listas —concedidos y revocados— que se aplican
+ * sobre lo que ya trae el rol. Mostrar eso tal cual sería un acertijo, así que
+ * acá se muestra una sola pregunta por permiso: ¿lo tiene o no lo tiene? La
+ * diferencia contra el rol se calcula al vuelo y se manda en las dos listas.
+ *
+ * Cuando el rol cambia en el mismo formulario, los interruptores se recalculan
+ * sobre el rol nuevo: si alguien pasa de Encargado a High Staff, ve de una qué
+ * le sumó el ascenso sin tener que guardar y volver a abrir.
+ */
+export function PermissionsEditor({
+  role,
+  granted,
+  revoked,
+}: {
+  readonly role: string;
+  readonly granted: readonly string[];
+  readonly revoked: readonly string[];
+}) {
+  const base = useMemo(() => {
+    const definition = isUserRole(role) ? ROLE_DEFINITIONS[role] : undefined;
+    return new Set<string>(definition?.permissions ?? []);
+  }, [role]);
+
+  const fullAccess = hasFullAccess(role);
+
+  // Ajustes hechos a mano en esta sesión, por permiso. Lo que no está acá sigue
+  // exactamente lo que dicta el rol.
+  const [overrides, setOverrides] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    for (const permission of granted) initial[permission] = true;
+    for (const permission of revoked) initial[permission] = false;
+    return initial;
+  });
+
+  const isOn = (permission: string) => overrides[permission] ?? base.has(permission);
+
+  const grantedList: string[] = [];
+  const revokedList: string[] = [];
+  for (const group of PERMISSION_GROUPS) {
+    for (const permission of group.permissions) {
+      const on = isOn(permission.value);
+      if (on && !base.has(permission.value)) grantedList.push(permission.value);
+      if (!on && base.has(permission.value)) revokedList.push(permission.value);
+    }
+  }
+
+  const changes = grantedList.length + revokedList.length;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="label mb-0">Permisos en la página</span>
+        {changes > 0 ? (
+          <span className="text-[0.6875rem] font-semibold text-amber-400">
+            {changes === 1 ? "1 ajuste sobre el rol" : changes + " ajustes sobre el rol"}
+          </span>
+        ) : (
+          <span className="text-chalk-600 text-[0.6875rem]">Los del rol, sin cambios</span>
+        )}
+      </div>
+
+      {fullAccess ? (
+        <Callout tone="neutral">
+          {roleLabel(role)} tiene acceso total por definición: no se le pueden recortar permisos.
+        </Callout>
+      ) : (
+        <div className="border-line max-h-64 overflow-y-auto rounded-xl border bg-black/20">
+          {PERMISSION_GROUPS.map((group) => (
+            <div key={group.key} className="border-b border-white/[0.05] last:border-b-0">
+              <p className="text-chalk-600 bg-white/[0.02] px-3 py-1.5 text-[0.625rem] font-semibold tracking-[0.12em] uppercase">
+                {group.label}
+              </p>
+              {group.permissions.map((permission) => {
+                const on = isOn(permission.value);
+                const moved = on !== base.has(permission.value);
+                return (
+                  <label
+                    key={permission.value}
+                    className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 transition-colors hover:bg-white/[0.03]"
+                  >
+                    <input
+                      type="checkbox"
+                      className="switch"
+                      checked={on}
+                      onChange={(event) =>
+                        setOverrides((current) => ({
+                          ...current,
+                          [permission.value]: event.target.checked,
+                        }))
+                      }
+                    />
+                    <span
+                      className={
+                        "flex-1 text-xs " + (on ? "text-chalk-200" : "text-chalk-600 line-through")
+                      }
+                    >
+                      {permission.label}
+                    </span>
+                    {moved ? (
+                      <span
+                        className={
+                          "text-[0.625rem] font-semibold " +
+                          (on ? "text-jade-400" : "text-imperial-400")
+                        }
+                      >
+                        {on ? "+" : "−"}
+                      </span>
+                    ) : null}
+                  </label>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Lo que viaja al servidor. Si no hay ninguno, el esquema usa la lista vacía. */}
+      {!fullAccess
+        ? grantedList.map((permission) => (
+            <input key={permission} type="hidden" name="grantedPermissions[]" value={permission} />
+          ))
+        : null}
+      {!fullAccess
+        ? revokedList.map((permission) => (
+            <input key={permission} type="hidden" name="revokedPermissions[]" value={permission} />
+          ))
+        : null}
+    </div>
   );
 }

@@ -18,8 +18,9 @@ import { formatPeriodLabel, formatCalendarDateShort } from "@/domain/periods";
 import { PERMISSIONS } from "@/domain/permissions";
 import { formatMinutes } from "@/domain/time";
 import { requirePermission } from "@/lib/auth/context";
-import { getPaymentSummary, getSettlement } from "@/server/payments";
+import { getPaymentBoard, getPaymentSummary, getSettlement } from "@/server/payments";
 import { getCurrentWeek, getWeekDetail, listWeekOptions } from "@/server/weeks";
+import { PaymentBoardTable, PaymentLegend } from "./payment-board";
 import { BulkPayDialog, PayDialog, VoidPaymentDialog } from "./payment-dialogs";
 
 export const metadata: Metadata = { title: "Pagos" };
@@ -60,10 +61,12 @@ export default async function PaymentsPage({
     );
   }
 
-  const [week, rows, summary] = await Promise.all([
+  // La liquidación alimenta al tablero y al detalle: se trae una sola vez.
+  const rows = await getSettlement(weekId);
+  const [week, summary, board] = await Promise.all([
     getWeekDetail(weekId),
-    getSettlement(weekId),
     getPaymentSummary(weekId),
+    getPaymentBoard(weekId, rows),
   ]);
 
   if (!week) return null;
@@ -139,11 +142,38 @@ export default async function PaymentsPage({
         </div>
       </Card>
 
-      {/* Pendientes */}
+      {/* Tablero: el staff entero por categoría, con las horas y lo que cobra
+          cada uno. Es la vista que se usa mientras se paga. */}
+      <Card>
+        <CardHeader
+          title="Staff por categoría"
+          description="Click derecho sobre una fila para marcarla como pagada o como pendiente."
+          action={<PaymentLegend pendingCount={board.pendingCount} paidCount={board.paidCount} />}
+        />
+        {board.groups.length === 0 ? (
+          <EmptyState
+            icon={<Icon name="users" size={20} />}
+            title="Nadie en este período"
+            description="Cargá horas en la planilla y el staff va a aparecer acá."
+          />
+        ) : (
+          <PaymentBoardTable
+            board={board}
+            weekId={weekId}
+            canPay={can(PERMISSIONS.PAYMENTS_CREATE)}
+            canVoid={can(PERMISSIONS.PAYMENTS_VOID)}
+            isClosed={isClosed}
+          />
+        )}
+      </Card>
+
+      {/* Detalle. El tablero de arriba alcanza para el día a día; esto es para
+          cuando hay que pagar un importe distinto al calculado o revisar quién
+          registró cada pago. */}
       <Card>
         <CardHeader
           title={"Pendientes (" + pending.length + ")"}
-          description="Liquidaciones con horas cargadas que todavía no se pagaron."
+          description="Para pagar un importe distinto al calculado, con su motivo."
         />
         {pending.length === 0 ? (
           <EmptyState

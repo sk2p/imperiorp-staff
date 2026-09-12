@@ -185,7 +185,12 @@ export async function updateUser(input: UpdateUserInput, actor: ActorContext): P
     if (!updated) throw concurrency();
     // Una cuenta desactivada pierde sus sesiones en el acto.
     if (existing.active && !updated.active) {
-      await revokeAllUserSessions(updated.id, "Cuenta desactivada", { revokedBy: actor.id }, tx);
+      await revokeAllUserSessions(
+        updated.id,
+        "Cuenta desactivada",
+        { revokedBy: actor.id ?? undefined },
+        tx,
+      );
       await recordSecurityEvent(
         {
           type: "ACCOUNT_DEACTIVATED",
@@ -242,7 +247,7 @@ export async function resetUserPassword(
       await revokeAllUserSessions(
         existing.id,
         "Contraseña restablecida",
-        { revokedBy: actor.id },
+        { revokedBy: actor.id ?? undefined },
         tx,
       );
     }
@@ -266,6 +271,8 @@ export async function changeOwnPassword(
   input: ChangeOwnPasswordInput,
   actor: ActorContext,
 ): Promise<void> {
+  if (!actor.id) throw notFound("El usuario");
+
   const [user] = await db.select().from(users).where(eq(users.id, actor.id)).limit(1);
   if (!user) throw notFound("El usuario");
   const check = await verifyPassword(input.currentPassword, user.passwordHash);

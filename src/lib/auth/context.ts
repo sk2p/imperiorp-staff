@@ -35,7 +35,12 @@ export interface Viewer {
 
 /** Quién ejecuta una operación, con la traza para auditarla. */
 export interface ActorContext {
-  readonly id: string;
+  /**
+   * Nulo cuando actúa el propio sistema (la rotación automática de período).
+   * No se puede inventar un identificador: la auditoría tiene clave foránea
+   * contra usuarios, y un id falso rompería la inserción.
+   */
+  readonly id: string | null;
   readonly username: string;
   readonly role: string;
   readonly ip: string | undefined;
@@ -191,8 +196,27 @@ export async function requireFounder(): Promise<AuthContext> {
   return context;
 }
 
-/** Viewer actual o `null`. Para componentes que se adaptan sin exigir sesión. */
+/** Viewer actual o . Para componentes que se adaptan sin exigir sesión. */
 export async function getViewer(): Promise<Viewer | null> {
   const context = await getAuthContext();
   return context?.viewer ?? null;
+}
+
+/**
+ * Actor que representa al propio sistema.
+ *
+ * Lo usan las tareas programadas. Queda registrado en la auditoría como
+ * "sistema", así que un cierre automático se distingue a simple vista de uno
+ * hecho por una persona.
+ */
+export function systemActor(reason: string): ActorContext {
+  return {
+    id: null,
+    username: "sistema",
+    role: "SYSTEM",
+    ip: undefined,
+    userAgent: reason,
+    traceId: newTraceId(),
+    sessionId: "sistema",
+  };
 }

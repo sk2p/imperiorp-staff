@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import { redirect } from "next/navigation";
 
-import { Icon } from "@/components/layout/icons";
 import { getAuthContext } from "@/lib/auth/context";
 import { LoginForm } from "./login-form";
 
@@ -29,16 +29,21 @@ export default async function LoginPage({
           sin competir con el formulario. */}
       <div
         aria-hidden
-        className="text-imperial-500/[0.045] pointer-events-none absolute -top-24 left-1/2 -translate-x-1/2"
+        className="pointer-events-none absolute -top-32 left-1/2 -translate-x-1/2 opacity-[0.045] blur-[1px]"
       >
-        <Icon name="crown" size={520} />
+        <Image src="/imperiorplogo.webp" alt="" width={560} height={560} />
       </div>
 
       <div className="anim-rise relative w-full max-w-[23rem]">
         <div className="mb-7 text-center">
-          <span className="anim-ring from-imperial-500 to-imperial-700 mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-[0_8px_28px_-8px_rgb(229_22_44/0.9)]">
-            <Icon name="crown" size={24} />
-          </span>
+          <Image
+            src="/imperiorplogo.webp"
+            alt="Imperio RP"
+            width={104}
+            height={104}
+            priority
+            className="anim-rise mx-auto mb-4 drop-shadow-[0_10px_30px_rgb(229_22_44/0.5)]"
+          />
           <h1 className="text-chalk-50 text-lg font-bold tracking-[0.18em]">IMPERIO RP</h1>
           <p className="text-chalk-600 mt-1 text-[0.6875rem] font-semibold tracking-[0.2em] uppercase">
             Gestión de staff

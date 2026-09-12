@@ -36,11 +36,12 @@ export default async function SettingsPage() {
   const actorRank = isUserRole(user.role) ? ROLE_DEFINITIONS[user.role].rank : 0;
 
   /**
-   * Las cuentas del panel las administra únicamente el Fundador.
+   * Las cuentas del panel las administran únicamente los Fundadores —hoy pit y
+   * mati, los encargados de la página.
    *
    * Un Owner puede hacer todo lo demás, pero ver la lista de usuarios expone
    * quién tiene acceso y desde cuándo, y permite restablecer contraseñas
-   * ajenas. Eso queda en una sola mano.
+   * ajenas y repartir permisos. Eso queda en pocas manos.
    */
   const canManageUsers = user.role === "FOUNDER";
 
@@ -147,7 +148,7 @@ export default async function SettingsPage() {
         <Card>
           <CardHeader
             title="Usuarios del panel"
-            description="Cuentas de acceso al sistema. No tienen relación con el rango de staff."
+            description="Quién entra a la página y qué puede hacer adentro. Nada de esto tiene relación con el rango de staff."
             action={
               can(PERMISSIONS.USERS_CREATE) ? <CreateUserDialog actorRank={actorRank} /> : null
             }
@@ -184,6 +185,19 @@ export default async function SettingsPage() {
                         <Badge tone={row.role === "FOUNDER" ? "imperial" : "neutral"}>
                           {roleLabel(row.role)}
                         </Badge>
+                        {row.grantedPermissions.length + row.revokedPermissions.length > 0 ? (
+                          <span
+                            className="text-chalk-600 ml-2 text-[0.625rem] font-semibold"
+                            title="Permisos ajustados a mano por encima del rol"
+                          >
+                            {row.grantedPermissions.length > 0
+                              ? "+" + row.grantedPermissions.length
+                              : ""}
+                            {row.revokedPermissions.length > 0
+                              ? " −" + row.revokedPermissions.length
+                              : ""}
+                          </span>
+                        ) : null}
                       </td>
                       <td>
                         <Badge tone={row.active ? "jade" : "muted"} dot>
@@ -276,8 +290,9 @@ export default async function SettingsPage() {
 
       {!canManageUsers ? (
         <Callout tone="neutral" title="Usuarios del panel">
-          La gestión de cuentas está reservada al Fundador. Si necesitás dar de alta a alguien o
-          restablecer una contraseña, pedíselo a <strong>pit</strong>.
+          La gestión de cuentas y los permisos de la página están a cargo de <strong>pit</strong> y{" "}
+          <strong>mati</strong>. Si necesitás dar de alta a alguien, cambiarle los permisos o
+          restablecer una contraseña, pedíselo a alguno de los dos.
         </Callout>
       ) : null}
     </div>

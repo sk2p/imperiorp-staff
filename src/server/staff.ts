@@ -13,6 +13,7 @@ import type {
   UpdateStaffInput,
 } from "@/validation/staff";
 import { appendAuditLog } from "./audit";
+import { joinStaffToOpenWeek } from "./grid";
 /**
  * IMPERIO RP — Miembros del staff.
  *
@@ -237,6 +238,13 @@ export async function createStaffMember(
       changedBy: actor.id,
       changedByUsername: actor.username,
     });
+    /**
+     * El alta entra al período EN CURSO, no al siguiente: si alguien se suma un
+     * jueves tiene que poder cargar las horas de ese mismo jueves. Los días
+     * anteriores quedan marcados como "todavía no estaba".
+     */
+    const joined = await joinStaffToOpenWeek(tx, created.id, new Date().toISOString().slice(0, 10));
+
     await appendAuditLog(tx, {
       actor,
       action: "STAFF_CREATED",
@@ -244,6 +252,9 @@ export async function createStaffMember(
       entityId: created.id,
       summary: "Dio de alta a " + created.name + " como " + rankLabel(created.rank),
       after: auditView(created),
+      metadata: joined
+        ? { periodo: joined.weekId, diasMarcadosComoPrevios: joined.markedDays }
+        : { periodo: "ninguno abierto" },
     });
     return created;
   });

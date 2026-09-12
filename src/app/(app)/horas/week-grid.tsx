@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition, type DragEvent } from "react";
 
 import { Icon } from "@/components/layout/icons";
 import { useCsrfToken, useToast } from "@/components/ui/interactive";
@@ -76,6 +76,8 @@ export function WeekGridTable({
   const [menu, setMenu] = useState<Menu | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
+  /** Dónde caería la fila arrastrada: antes o después de esta otra. */
+  const [dropAt, setDropAt] = useState<{ id: string; below: boolean } | null>(null);
 
   useEffect(() => {
     if (!menu) return;
@@ -113,18 +115,47 @@ export function WeekGridTable({
     [token, toast],
   );
 
-  const handleDrop = (groupIndex: number, targetId: string) => {
+  const endDrag = () => {
+    setDragging(null);
+    setDropAt(null);
+  };
+
+  /**
+   * Marca la ranura donde caería la fila: arriba o abajo de aquella sobre la
+   * que está el cursor, según de qué mitad se trate. Sin esta señal el gesto
+   * es a ciegas y hay que soltar para ver dónde quedó.
+   */
+  const handleDragOver = (event: DragEvent<HTMLTableRowElement>, targetId: string) => {
+    event.preventDefault();
+    if (!dragging || dragging === targetId) return;
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const below = event.clientY > rect.top + rect.height / 2;
+
+    setDropAt((current) =>
+      current && current.id === targetId && current.below === below
+        ? current
+        : { id: targetId, below },
+    );
+  };
+
+  const handleDrop = (groupIndex: number, targetId: string, below: boolean) => {
     const group = grid.groups[groupIndex];
-    if (!dragging || !group || dragging === targetId) return setDragging(null);
+    if (!dragging || !group || dragging === targetId) return endDrag();
 
     const ids = group.rows.map((row) => row.staffMemberId);
-    const from = ids.indexOf(dragging);
-    const to = ids.indexOf(targetId);
-    if (from < 0 || to < 0) return setDragging(null);
+    // Sólo se reordena dentro del mismo grupo: el grupo lo decide el rango.
+    if (!ids.includes(dragging)) return endDrag();
 
-    ids.splice(to, 0, ...ids.splice(from, 1));
-    setDragging(null);
-    run(reorderAction, { staffMemberIds: ids }, "Orden actualizado.");
+    const rest = ids.filter((id) => id !== dragging);
+    const target = rest.indexOf(targetId);
+    if (target < 0) return endDrag();
+
+    rest.splice(below ? target + 1 : target, 0, dragging);
+    endDrag();
+
+    if (rest.every((id, index) => id === ids[index])) return;
+    run(reorderAction, { staffMemberIds: rest }, "Orden actualizado.");
   };
 
   const columns = 4 + dayLabels.length + (canDelete ? 1 : 0);
@@ -188,146 +219,159 @@ export function WeekGridTable({
                   </td>
                 </tr>
 
-                {group.rows.map((row) => (
-                  <tr
-                    key={row.staffMemberId}
-                    draggable={canReorder}
-                    onDragStart={() => setDragging(row.staffMemberId)}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={() => handleDrop(groupIndex, row.staffMemberId)}
-                    className={cn(dragging === row.staffMemberId && "opacity-40")}
-                  >
-                    <td>
-                      <div className="flex items-center gap-2">
-                        {canReorder ? (
-                          <span
-                            className="text-chalk-700 cursor-grab active:cursor-grabbing"
-                            title="Arrastrá para reordenar"
-                          >
-                            <svg width="10" height="14" viewBox="0 0 10 14" aria-hidden>
-                              <g fill="currentColor">
-                                <circle cx="2" cy="2" r="1.2" />
-                                <circle cx="8" cy="2" r="1.2" />
-                                <circle cx="2" cy="7" r="1.2" />
-                                <circle cx="8" cy="7" r="1.2" />
-                                <circle cx="2" cy="12" r="1.2" />
-                                <circle cx="8" cy="12" r="1.2" />
-                              </g>
-                            </svg>
+                {group.rows.map((row) => {
+                  const sameGroup =
+                    dragging !== null &&
+                    group.rows.some((other) => other.staffMemberId === dragging);
+                  const marker = sameGroup && dropAt?.id === row.staffMemberId ? dropAt : null;
+
+                  return (
+                    <tr
+                      key={row.staffMemberId}
+                      draggable={canReorder}
+                      onDragStart={() => setDragging(row.staffMemberId)}
+                      onDragEnd={endDrag}
+                      onDragOver={(event) => handleDragOver(event, row.staffMemberId)}
+                      onDrop={() =>
+                        handleDrop(groupIndex, row.staffMemberId, marker?.below ?? false)
+                      }
+                      className={cn(
+                        dragging === row.staffMemberId && "row-dragging",
+                        marker && (marker.below ? "drop-below" : "drop-above"),
+                      )}
+                    >
+                      <td>
+                        <div className="flex items-center gap-2">
+                          {canReorder ? (
+                            <span
+                              className="text-chalk-700 cursor-grab active:cursor-grabbing"
+                              title="Arrastrá para reordenar"
+                            >
+                              <svg width="10" height="14" viewBox="0 0 10 14" aria-hidden>
+                                <g fill="currentColor">
+                                  <circle cx="2" cy="2" r="1.2" />
+                                  <circle cx="8" cy="2" r="1.2" />
+                                  <circle cx="2" cy="7" r="1.2" />
+                                  <circle cx="8" cy="7" r="1.2" />
+                                  <circle cx="2" cy="12" r="1.2" />
+                                  <circle cx="8" cy="12" r="1.2" />
+                                </g>
+                              </svg>
+                            </span>
+                          ) : null}
+                          <span className="min-w-0">
+                            <span className="text-chalk-100 block truncate font-medium">
+                              [{row.rank}] {row.name}
+                            </span>
+                            <span className="text-chalk-600 block text-[0.625rem]">
+                              Staff registrado
+                            </span>
                           </span>
-                        ) : null}
-                        <span className="min-w-0">
-                          <span className="text-chalk-100 block truncate font-medium">
-                            [{row.rank}] {row.name}
-                          </span>
-                          <span className="text-chalk-600 block text-[0.625rem]">
-                            Staff registrado
-                          </span>
-                        </span>
-                      </div>
-                    </td>
+                        </div>
+                      </td>
 
-                    <td>
-                      <button
-                        type="button"
-                        disabled={!canChangeRank}
-                        title={canChangeRank ? "Click derecho para cambiar el rango" : undefined}
-                        onContextMenu={(event) => {
-                          if (!canChangeRank) return;
-                          event.preventDefault();
-                          setMenu({
-                            kind: "rango",
-                            staffMemberId: row.staffMemberId,
-                            name: row.name,
-                            rank: row.rank,
-                            x: event.clientX,
-                            y: event.clientY,
-                          });
-                        }}
-                        style={{
-                          backgroundColor: row.rankColor,
-                          color: readableTextOn(row.rankColor),
-                        }}
-                        className={cn(
-                          "inline-flex rounded-md px-2 py-0.5 text-[0.625rem] font-bold transition",
-                          canChangeRank
-                            ? "cursor-context-menu hover:brightness-110"
-                            : "cursor-default",
-                        )}
-                      >
-                        {row.rank}
-                      </button>
-                    </td>
-
-                    {row.days.map((cell, dayIndex) => (
-                      <HourCell
-                        key={cell.workDate}
-                        minutes={cell.minutes}
-                        status={cell.status}
-                        editable={canEdit}
-                        title={
-                          cell.recordedByUsername
-                            ? "Cargado por " + cell.recordedByUsername
-                            : undefined
-                        }
-                        onSave={(minutes) =>
-                          run(setCellAction, {
-                            weekId: grid.weekId,
-                            staffMemberId: row.staffMemberId,
-                            workDate: cell.workDate,
-                            minutes: String(minutes),
-                          })
-                        }
-                        onContextMenu={(x, y) =>
-                          setMenu({
-                            kind: "dia",
-                            staffMemberId: row.staffMemberId,
-                            name: row.name,
-                            workDate: cell.workDate,
-                            label:
-                              (dayLabels[dayIndex]?.weekday ?? "") +
-                              " " +
-                              (dayLabels[dayIndex]?.date ?? ""),
-                            status: cell.status,
-                            x,
-                            y,
-                          })
-                        }
-                      />
-                    ))}
-
-                    <td className="tnum text-chalk-100 text-right font-semibold">
-                      {formatMinutesClock(row.totalMinutes)}
-                    </td>
-
-                    <td className="tnum text-jade-400 text-right font-semibold">
-                      {formatMoney(row.amount)}
-                    </td>
-
-                    {canDelete ? (
-                      <td className="text-center">
+                      <td>
                         <button
                           type="button"
-                          onClick={() =>
-                            setConfirmDelete({ id: row.staffMemberId, name: row.name })
-                          }
-                          aria-label={"Quitar a " + row.name}
-                          title={"Quitar a " + row.name}
-                          className="cell border-imperial-500/30 text-imperial-400 hover:bg-imperial-500/15 inline-flex h-7 w-7 items-center justify-center rounded-md border"
+                          disabled={!canChangeRank}
+                          title={canChangeRank ? "Click derecho para cambiar el rango" : undefined}
+                          onContextMenu={(event) => {
+                            if (!canChangeRank) return;
+                            event.preventDefault();
+                            setMenu({
+                              kind: "rango",
+                              staffMemberId: row.staffMemberId,
+                              name: row.name,
+                              rank: row.rank,
+                              x: event.clientX,
+                              y: event.clientY,
+                            });
+                          }}
+                          style={{
+                            backgroundColor: row.rankColor,
+                            color: readableTextOn(row.rankColor),
+                          }}
+                          className={cn(
+                            "inline-flex rounded-md px-2 py-0.5 text-[0.625rem] font-bold transition",
+                            canChangeRank
+                              ? "cursor-context-menu hover:brightness-110"
+                              : "cursor-default",
+                          )}
                         >
-                          <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden>
-                            <path
-                              d="M2.5 3.5h9M5.5 3.5V2.2h3v1.3M3.6 3.5l.5 8a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.5-8"
-                              stroke="currentColor"
-                              strokeWidth="1.3"
-                              strokeLinecap="round"
-                            />
-                          </svg>
+                          {row.rank}
                         </button>
                       </td>
-                    ) : null}
-                  </tr>
-                ))}
+
+                      {row.days.map((cell, dayIndex) => (
+                        <HourCell
+                          key={cell.workDate}
+                          minutes={cell.minutes}
+                          status={cell.status}
+                          editable={canEdit}
+                          title={
+                            cell.recordedByUsername
+                              ? "Cargado por " + cell.recordedByUsername
+                              : undefined
+                          }
+                          onSave={(minutes) =>
+                            run(setCellAction, {
+                              weekId: grid.weekId,
+                              staffMemberId: row.staffMemberId,
+                              workDate: cell.workDate,
+                              minutes: String(minutes),
+                            })
+                          }
+                          onContextMenu={(x, y) =>
+                            setMenu({
+                              kind: "dia",
+                              staffMemberId: row.staffMemberId,
+                              name: row.name,
+                              workDate: cell.workDate,
+                              label:
+                                (dayLabels[dayIndex]?.weekday ?? "") +
+                                " " +
+                                (dayLabels[dayIndex]?.date ?? ""),
+                              status: cell.status,
+                              x,
+                              y,
+                            })
+                          }
+                        />
+                      ))}
+
+                      <td className="tnum text-chalk-100 text-right font-semibold">
+                        {formatMinutesClock(row.totalMinutes)}
+                      </td>
+
+                      <td className="tnum text-jade-400 text-right font-semibold">
+                        {formatMoney(row.amount)}
+                      </td>
+
+                      {canDelete ? (
+                        <td className="text-center">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setConfirmDelete({ id: row.staffMemberId, name: row.name })
+                            }
+                            aria-label={"Quitar a " + row.name}
+                            title={"Quitar a " + row.name}
+                            className="cell border-imperial-500/30 text-imperial-400 hover:bg-imperial-500/15 inline-flex h-7 w-7 items-center justify-center rounded-md border"
+                          >
+                            <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden>
+                              <path
+                                d="M2.5 3.5h9M5.5 3.5V2.2h3v1.3M3.6 3.5l.5 8a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.5-8"
+                                stroke="currentColor"
+                                strokeWidth="1.3"
+                                strokeLinecap="round"
+                              />
+                            </svg>
+                          </button>
+                        </td>
+                      ) : null}
+                    </tr>
+                  );
+                })}
               </tbody>
             );
           })}

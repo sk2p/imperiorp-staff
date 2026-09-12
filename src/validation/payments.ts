@@ -110,3 +110,17 @@ export const paymentFiltersSchema = paginationSchema.extend({
 });
 
 export type PaymentFilters = z.infer<typeof paymentFiltersSchema>;
+
+/**
+ * Marcar o desmarcar el pago de un miembro desde el tablero.
+ *
+ * Sin importe ni método: el tablero paga siempre lo calculado. Cualquier pago
+ * por un importe distinto pasa por el formulario completo, que exige el motivo.
+ */
+export const togglePaymentSchema = z.object({
+  weekId: uuidSchema,
+  staffMemberId: uuidSchema,
+  paid: z.coerce.boolean(),
+});
+
+export type TogglePaymentInput = z.infer<typeof togglePaymentSchema>;
