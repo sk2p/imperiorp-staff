@@ -82,6 +82,7 @@ import {
   reorderSchema,
   resetWeekSchema,
   setCellSchema,
+  setIcMinutesSchema,
   setDayStatusSchema,
   updateGroupRatesSchema,
   updateRankColorsSchema,
@@ -92,6 +93,7 @@ import {
   resetWeekHours,
   setDayStatus,
   setGridCell,
+  setIcMinutes,
 } from "@/server/grid";
 import { updateGroupRates, updateRankColors } from "@/server/settings";
 import { z } from "zod";
@@ -385,6 +387,20 @@ export async function setCellAction(
       await setGridCell(input, context.actor);
       revalidatePath("/horas");
       revalidatePath("/");
+    },
+  );
+}
+
+export async function setIcMinutesAction(
+  _previous: ActionState<unknown>,
+  formData: FormData,
+): Promise<ActionState<unknown>> {
+  return runAction(
+    formData,
+    { permission: P.HOURS_EDIT, schema: setIcMinutesSchema, success: "Horas IC guardadas." },
+    async (input, context) => {
+      await setIcMinutes(input, context.actor);
+      revalidatePath("/horas");
     },
   );
 }

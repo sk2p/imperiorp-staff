@@ -127,3 +127,19 @@ export const resetWeekSchema = z.object({
 export type ResetWeekInput = z.infer<typeof resetWeekSchema>;
 
 export const GROUP_RATE_KEYS = STAFF_GROUPS;
+
+/**
+ * Horas IC del período: un total por persona, de Mid Staff para arriba.
+ * No se pagan, así que no llevan ni tarifa ni motivo: es un control.
+ */
+export const setIcMinutesSchema = z.object({
+  weekId: uuidSchema,
+  staffMemberId: uuidSchema,
+  minutes: z.coerce
+    .number()
+    .int("Las horas IC deben ser un número entero de minutos.")
+    .min(0, "No puede ser negativo.")
+    .max(168 * 60, "Ese total supera las horas que tiene una semana."),
+});
+
+export type SetIcMinutesInput = z.infer<typeof setIcMinutesSchema>;

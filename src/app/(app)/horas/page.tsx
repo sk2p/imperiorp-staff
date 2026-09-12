@@ -26,6 +26,7 @@ import { formatMinutes } from "@/domain/time";
 import { requirePermission } from "@/lib/auth/context";
 import { getWeekGrid } from "@/server/grid";
 import { getCurrentWeek, getWeek, listWeekOptions } from "@/server/weeks";
+import { IcHoursPanel } from "./ic-hours";
 import { WeekGridTable } from "./week-grid";
 
 export const metadata: Metadata = { title: "Registro de Horas" };
@@ -207,6 +208,18 @@ export default async function HoursPage({
           />
         )}
       </Card>
+
+      {/* Horas de personaje: un control aparte, de Mid Staff para arriba. No
+          entra en la liquidación, por eso vive en su propia tarjeta. */}
+      {grid.groups.some((group) => group.group !== "LOW_STAFF") ? (
+        <Card>
+          <CardHeader
+            title="Período IC"
+            description="Horas de personaje dentro del servidor, de Mid Staff para arriba. No se pagan: es un control aparte de las horas de staff."
+          />
+          <IcHoursPanel grid={grid} editable={can(PERMISSIONS.HOURS_EDIT) && isOpen} />
+        </Card>
+      ) : null}
     </div>
   );
 }
