@@ -19,6 +19,16 @@ const PUBLIC_PATHS = new Set([LOGIN_PATH, "/api/health", "/api/ready"]);
 function isPublic(pathname: string): boolean {
   if (PUBLIC_PATHS.has(pathname)) return true;
   return (
+    /**
+     * Las tareas programadas no tienen cookie: las llama el programador de
+     * Vercel, no un navegador. Sin esta excepción el filtro las redirige al
+     * login y la rotación del período no corre nunca.
+     *
+     * No queda abierto nada: cada tarea exige el secreto compartido en la
+     * cabecera `Authorization`, y sin `CRON_SECRET` definida se cierra sola
+     * en producción.
+     */
+    pathname.startsWith("/api/cron/") ||
     pathname.startsWith("/_next/") ||
     pathname.startsWith("/favicon") ||
     pathname === "/robots.txt" ||
