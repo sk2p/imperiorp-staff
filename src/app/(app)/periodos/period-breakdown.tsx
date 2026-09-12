@@ -112,7 +112,10 @@ export function PeriodInside({
 
       <div className="mt-3 grid gap-2.5 sm:grid-cols-3">
         {breakdown.groups.map((grupo) => (
-          <div key={grupo.group} className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
+          <div
+            key={grupo.group}
+            className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2"
+          >
             <div className="flex items-center gap-1.5">
               <span className="reparto-punto" style={{ background: COLOR[grupo.group] }} />
               <span className={cn("text-[0.6875rem] font-semibold", TEXTO[grupo.group])}>

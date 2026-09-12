@@ -52,9 +52,7 @@ export default async function PeriodsPage({
   const preflights = can(PERMISSIONS.WEEKS_CLOSE)
     ? new Map(
         await Promise.all(
-          openWeeks.map(
-            async (week) => [week.id, await preflightClose(week.id)] as const,
-          ),
+          openWeeks.map(async (week) => [week.id, await preflightClose(week.id)] as const),
         ),
       )
     : new Map<string, Awaited<ReturnType<typeof preflightClose>>>();
@@ -190,7 +188,7 @@ export default async function PeriodsPage({
                           </span>
                           {desglose ? (
                             <>
-                              <GroupBar breakdown={desglose} className="ml-auto mt-1 w-24" />
+                              <GroupBar breakdown={desglose} className="mt-1 ml-auto w-24" />
                               <span className="text-chalk-600 mt-0.5 block text-[0.625rem]">
                                 {desglose.membersWithHours} de {week.memberCount} cargaron
                               </span>

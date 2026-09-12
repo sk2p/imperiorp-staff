@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 
+import { Coin } from "@/components/ui/coin";
+
 export const metadata: Metadata = { title: "Página no encontrada" };
 
 /**
@@ -22,6 +24,7 @@ export default function NotFound() {
       </div>
 
       <div className="anim-rise relative w-full max-w-md text-center">
+        <Coin size={88} className="mx-auto mb-2" />
         <p className="error-numero select-none">404</p>
 
         <h1 className="text-chalk-50 -mt-4 text-xl font-bold tracking-tight sm:text-2xl">

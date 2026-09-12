@@ -33,7 +33,7 @@ export function OpenPeriodCard({
   readonly puedeCerrar: boolean;
 }) {
   return (
-    <Card className={activo ? "border-imperial-500/25" : "border-white/[0.08]"}>
+    <Card className={"revela " + (activo ? "border-imperial-500/25" : "border-white/[0.08]")}>
       <CardHeader
         title={
           <span className="flex flex-wrap items-center gap-2">

@@ -168,6 +168,10 @@ export function AppShell({
 
   return (
     <div className="flex min-h-dvh">
+      {/* Detrás de todo: dos manchas de color que derivan muy despacio. Da
+          profundidad al panel sin agregar nada que alguien tenga que mirar. */}
+      <div aria-hidden className="aurora" />
+
       {/* Barra lateral — escritorio */}
       <aside className="bg-ink-900/80 fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-white/[0.07] backdrop-blur-xl lg:flex">
         <div className="flex h-14 items-center border-b border-white/[0.07] px-4">

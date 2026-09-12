@@ -1,6 +1,8 @@
 import clsx, { type ClassValue } from "clsx";
 import Link from "next/link";
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
+
+import { Rodillo } from "./rodillo";
 import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]): string {
@@ -178,7 +180,13 @@ export function Stat({
           accent ? "text-imperial-400 stat-glow" : "text-chalk-50",
         )}
       >
-        {value}
+        {/* Una cifra entra en cascada; cualquier otra cosa —un ícono, dos
+            líneas— se muestra tal cual. */}
+        {typeof value === "string" || typeof value === "number" ? (
+          <Rodillo texto={String(value)} />
+        ) : (
+          value
+        )}
       </p>
       {hint ? <p className="text-chalk-500 mt-1.5 text-xs">{hint}</p> : null}
       {trend && direction ? (

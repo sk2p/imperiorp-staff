@@ -2068,3 +2068,262 @@ select:focus {
     animation: none;
   }
 }
+
+/* -------------------------------------------------------------------------- *
+ * Moneda 3D
+ *
+ * Un sólido de verdad, no una ilusión plana. El canto se arma con 24 rebanadas
+ * paradas alrededor del borde: cada una se gira sobre el eje Z hasta su ángulo,
+ * se empuja hacia afuera hasta el radio y se para de canto. Juntas forman el
+ * cilindro.
+ *
+ * El ancho de cada rebanada es el arco que le toca —perímetro sobre 24— con un
+ * pelo de más, para que no queden ranuras de luz entre una y otra.
+ * -------------------------------------------------------------------------- */
+.moneda {
+  --moneda-tam: 128px;
+  --moneda-grosor: calc(var(--moneda-tam) * 0.07);
+  --moneda-radio: calc(var(--moneda-tam) / 2);
+  --moneda-paso: calc(360deg / 24);
+  /* Perímetro / 24, más un 6 % de solape contra las ranuras. */
+  --moneda-arco: calc(var(--moneda-tam) * 0.1389);
+
+  width: var(--moneda-tam);
+  height: var(--moneda-tam);
+  perspective: calc(var(--moneda-tam) * 7);
+}
+
+.moneda-cuerpo {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  animation: moneda-gira 14s linear infinite;
+}
+
+/* Al pasar por encima acelera y se inclina: se nota que es un objeto. */
+.moneda:hover .moneda-cuerpo {
+  animation-duration: 3.5s;
+}
+
+@keyframes moneda-gira {
+  from {
+    transform: rotateX(-14deg) rotateY(0deg);
+  }
+  to {
+    transform: rotateX(-14deg) rotateY(360deg);
+  }
+}
+
+.moneda-cara {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  backface-visibility: hidden;
+  /* El disco tiene su propio material: no es el PNG flotando en el aire. */
+  background: radial-gradient(
+    circle at 34% 28%,
+    rgb(46 46 52) 0%,
+    rgb(24 24 28) 55%,
+    rgb(12 12 15) 100%
+  );
+  box-shadow:
+    inset 0 0 0 calc(var(--moneda-tam) * 0.018) rgb(255 255 255 / 0.09),
+    inset 0 0 calc(var(--moneda-tam) * 0.12) rgb(0 0 0 / 0.75);
+}
+
+.moneda-cara img {
+  width: 78%;
+  height: auto;
+  filter: drop-shadow(
+    0 calc(var(--moneda-tam) * 0.02) calc(var(--moneda-tam) * 0.06) rgb(0 0 0 / 0.6)
+  );
+}
+
+.moneda-frente {
+  transform: translateZ(calc(var(--moneda-grosor) / 2));
+}
+
+/*
+ * El dorso se gira media vuelta para que su cara mire hacia atrás. Sin eso las
+ * dos caras miran al mismo lado y el sólido se ve hueco de un perfil.
+ */
+.moneda-dorso {
+  transform: rotateY(180deg) translateZ(calc(var(--moneda-grosor) / 2));
+}
+
+.moneda-duela {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--moneda-arco);
+  height: var(--moneda-grosor);
+  margin-left: calc(var(--moneda-arco) / -2);
+  margin-top: calc(var(--moneda-grosor) / -2);
+  /* Girar al ángulo → salir al radio → pararse de canto. */
+  transform: rotate(calc(var(--duela) * var(--moneda-paso)))
+    translateY(calc(var(--moneda-radio) * -1)) rotateX(90deg);
+  background: linear-gradient(
+    to bottom,
+    rgb(70 70 78) 0%,
+    rgb(122 122 132) 18%,
+    rgb(38 38 44) 52%,
+    rgb(96 96 104) 84%,
+    rgb(46 46 52) 100%
+  );
+}
+
+/*
+ * Quien pidió menos movimiento en su sistema ve la moneda quieta y de frente,
+ * no un disco girando eternamente en la pantalla de ingreso.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .moneda-cuerpo,
+  .moneda:hover .moneda-cuerpo {
+    animation: none;
+    transform: rotateX(-10deg) rotateY(-12deg);
+  }
+}
+
+/* -------------------------------------------------------------------------- *
+ * Rodillo de cifras
+ *
+ * Cada carácter cae girando sobre su eje, en cascada. La perspectiva está en
+ * la pista y no en cada cifra, para que todas compartan el mismo punto de fuga
+ * y el giro se lea como un rodillo único y no como cifras sueltas dando
+ * vueltas cada una por su cuenta.
+ * -------------------------------------------------------------------------- */
+.rodillo {
+  display: inline-block;
+}
+
+.rodillo-pista {
+  display: inline-flex;
+  /* Una cifra larga en una tarjeta angosta se parte antes que desbordarla. */
+  flex-wrap: wrap;
+  perspective: 320px;
+  perspective-origin: 50% 40%;
+}
+
+.rodillo-cifra {
+  display: inline-block;
+  transform-origin: 50% 100%;
+  white-space: pre;
+  animation: rodillo-cae 0.52s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes rodillo-cae {
+  from {
+    opacity: 0;
+    transform: rotateX(-78deg) translateY(0.42em);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+/* -------------------------------------------------------------------------- *
+ * Aurora de fondo
+ *
+ * Dos manchas de color muy diluidas que se desplazan despacio detrás de todo.
+ * El fondo plano de un panel oscuro se siente muerto; esto le da algo que
+ * respira sin que nadie lo mire a propósito.
+ *
+ * Sólo se animan `transform` y `opacity`: el navegador lo resuelve en la placa
+ * de video, sin volver a calcular el diseño de la página en ningún cuadro.
+ * -------------------------------------------------------------------------- */
+.aurora {
+  position: fixed;
+  inset: -20%;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+  contain: strict;
+}
+
+.aurora::before,
+.aurora::after {
+  content: "";
+  position: absolute;
+  width: 70vmax;
+  height: 70vmax;
+  border-radius: 50%;
+  filter: blur(90px);
+  will-change: transform;
+}
+
+.aurora::before {
+  top: -22%;
+  left: -12%;
+  background: radial-gradient(circle, rgb(229 22 44 / 0.13), transparent 62%);
+  animation: aurora-deriva-a 34s ease-in-out infinite alternate;
+}
+
+.aurora::after {
+  right: -18%;
+  bottom: -26%;
+  background: radial-gradient(circle, rgb(80 40 160 / 0.1), transparent 62%);
+  animation: aurora-deriva-b 46s ease-in-out infinite alternate;
+}
+
+@keyframes aurora-deriva-a {
+  to {
+    transform: translate3d(18vw, 10vh, 0) scale(1.18);
+  }
+}
+
+@keyframes aurora-deriva-b {
+  to {
+    transform: translate3d(-16vw, -12vh, 0) scale(1.1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rodillo-cifra {
+    animation: none;
+  }
+
+  .aurora::before,
+  .aurora::after {
+    animation: none;
+  }
+}
+
+/* -------------------------------------------------------------------------- *
+ * Revelado al entrar en pantalla
+ *
+ * La tarjeta aparece cuando entra en el campo de visión, atada al scroll y no
+ * a un reloj: si alguien baja rápido, ya está entera; si baja despacio, se
+ * revela mientras sube. Lo hace el navegador con `animation-timeline: view()`,
+ * sin observadores ni escuchas de scroll en JavaScript.
+ *
+ * Donde el navegador no lo soporta, la regla entera se ignora y la tarjeta se
+ * muestra normal. Por eso la animación va adentro del `@supports` y no afuera:
+ * una animación que empieza invisible y nunca avanza deja la página en blanco.
+ * -------------------------------------------------------------------------- */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .revela {
+      animation: revela-entra linear both;
+      animation-timeline: view();
+      /* Arranca al asomar por abajo y termina cuando entró un cuarto. */
+      animation-range: entry 0% cover 22%;
+    }
+  }
+}
+
+@keyframes revela-entra {
+  from {
+    opacity: 0;
+    transform: translateY(22px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

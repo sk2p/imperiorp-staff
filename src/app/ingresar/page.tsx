@@ -3,6 +3,7 @@ import Image from "next/image";
 import { redirect } from "next/navigation";
 
 import { getAuthContext } from "@/lib/auth/context";
+import { Coin } from "@/components/ui/coin";
 import { Spotlight } from "@/components/ui/spotlight";
 import { LoginForm } from "./login-form";
 
@@ -39,14 +40,7 @@ export default async function LoginPage({
 
       <div className="anim-rise relative w-full max-w-[23rem]">
         <div className="mb-7 text-center">
-          <Image
-            src="/imperiorplogo.webp"
-            alt="Imperio RP"
-            width={104}
-            height={104}
-            priority
-            className="anim-rise mx-auto mb-4 drop-shadow-[0_10px_30px_rgb(229_22_44/0.5)]"
-          />
+          <Coin size={104} priority className="anim-rise mx-auto mb-4" />
           <h1 className="text-chalk-50 text-lg font-bold tracking-[0.18em]">IMPERIO RP</h1>
           <p className="text-chalk-600 mt-1 text-[0.6875rem] font-semibold tracking-[0.2em] uppercase">
             Gestión de staff
