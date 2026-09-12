@@ -1658,3 +1658,82 @@ body[data-arrastrando] {
     display: none;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Gráficos
+   -------------------------------------------------------------------------- */
+
+/* La columna que se está mirando se mantiene y las demás se apagan. Con diez
+   semanas en pantalla es lo que permite aislar una sin leer los números. */
+.chart-col {
+  transition: opacity 180ms ease;
+}
+
+svg:hover > .chart-col {
+  opacity: 0.4;
+}
+
+svg > .chart-col:hover {
+  opacity: 1;
+}
+
+.chart-bar {
+  transition: filter 180ms ease;
+}
+
+.chart-col:hover .chart-bar {
+  filter: brightness(1.35);
+}
+
+/* El punto de la curva crece al pasar por encima. El área sensible es mucho
+   más grande que el punto, así que no hay que acertarle a tres píxeles. */
+.chart-punto circle:first-child {
+  transition:
+    r 160ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    stroke-width 160ms ease;
+}
+
+.chart-punto:hover circle:first-child {
+  r: 5;
+  stroke-width: 2.5;
+}
+
+/* La canaleta por donde corre una barra de progreso: hundida, no plana. */
+.pista {
+  background: rgb(0 0 0 / 0.42);
+  box-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 0.55),
+    0 1px 0 rgb(255 255 255 / 0.04);
+}
+
+/* Un brillo que recorre el relleno una sola vez al aparecer. Es lo que separa
+   una barra de progreso viva de un rectángulo de color. */
+.barra-viva {
+  position: relative;
+  overflow: hidden;
+}
+
+.barra-viva::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.35), transparent);
+  transform: translateX(-100%);
+  animation: barra-destello 1.6s ease-out 600ms both;
+}
+
+@keyframes barra-destello {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .barra-viva::after {
+    animation: none;
+    opacity: 0;
+  }
+  svg:hover > .chart-col {
+    opacity: 1;
+  }
+}

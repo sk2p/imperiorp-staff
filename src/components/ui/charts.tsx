@@ -60,66 +60,129 @@ export function BarChart({
         ? formatMinutes(value)
         : value.toLocaleString("es-AR");
 
-  const gap = 0.24;
-  const slot = 100 / data.length;
-  const barWidth = slot * (1 - gap);
+  /**
+   * El lienzo se mide en píxeles de verdad.
+   *
+   * Antes el `viewBox` era siempre de cien de ancho y el SVG se estiraba para
+   * llenar la caja. Eso deforma todo lo que no sea un rectángulo recto: un
+   * borde redondeado de radio uno terminaba siendo una elipse achatada, y el
+   * ancho de las líneas no coincidía entre ejes. Con el lienzo en píxeles, un
+   * radio de tres píxeles mide tres píxeles.
+   */
+  const width = Math.max(320, data.length * 52);
+  const slot = width / data.length;
+  const barWidth = Math.min(34, slot * 0.62);
+  const radio = Math.min(4, barWidth / 2);
+  const alto = height - 6;
+
+  /** Barra con las esquinas de ARRIBA redondeadas y las de abajo rectas. */
+  const barra = (x: number, h: number): string => {
+    const y = height - h;
+    const r = Math.min(radio, h);
+    return (
+      "M" +
+      x +
+      " " +
+      height +
+      " L" +
+      x +
+      " " +
+      (y + r) +
+      " Q" +
+      x +
+      " " +
+      y +
+      " " +
+      (x + r) +
+      " " +
+      y +
+      " L" +
+      (x + barWidth - r) +
+      " " +
+      y +
+      " Q" +
+      (x + barWidth) +
+      " " +
+      y +
+      " " +
+      (x + barWidth) +
+      " " +
+      (y + r) +
+      " L" +
+      (x + barWidth) +
+      " " +
+      height +
+      " Z"
+    );
+  };
 
   return (
     <figure className="w-full">
       <div className="scroll-x">
-        <div style={{ minWidth: Math.max(320, data.length * 46) }}>
+        <div style={{ minWidth: width }}>
           <svg
-            viewBox={`0 0 100 ${height}`}
-            preserveAspectRatio="none"
+            viewBox={"0 0 " + width + " " + height}
             height={height}
             className="w-full"
             role="img"
             aria-label={"Gráfico de barras con " + data.length + " valores"}
           >
+            <defs>
+              {/* Las barras se aclaran hacia arriba: da volumen sin sombras. */}
+              <linearGradient id="barra-imperial" x1="0" y1="1" x2="0" y2="0">
+                <stop offset="0%" stopColor="var(--color-imperial-700)" />
+                <stop offset="100%" stopColor="var(--color-imperial-400)" />
+              </linearGradient>
+              <linearGradient id="barra-apagada" x1="0" y1="1" x2="0" y2="0">
+                <stop offset="0%" stopColor="var(--color-ink-700)" />
+                <stop offset="100%" stopColor="var(--color-ink-600)" />
+              </linearGradient>
+              <linearGradient id="barra-jade" x1="0" y1="1" x2="0" y2="0">
+                <stop offset="0%" stopColor="var(--color-jade-500)" />
+                <stop offset="100%" stopColor="var(--color-jade-400)" />
+              </linearGradient>
+            </defs>
+
             {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (
               <line
                 key={ratio}
                 x1="0"
-                x2="100"
+                x2={width}
                 y1={height - ratio * height}
                 y2={height - ratio * height}
                 stroke={AXIS}
                 strokeWidth="1"
-                vectorEffect="non-scaling-stroke"
               />
             ))}
 
             {data.map((item, index) => {
               const x = index * slot + (slot - barWidth) / 2;
-              const barHeight = Math.max(1, (item.value / max) * (height - 4));
+              const barHeight = Math.max(2, (item.value / max) * alto);
               const secondaryHeight =
-                item.secondary === undefined
-                  ? 0
-                  : Math.max(0, (item.secondary / max) * (height - 4));
+                item.secondary === undefined ? 0 : Math.max(0, (item.secondary / max) * alto);
 
               return (
-                <g key={item.label + index}>
-                  <rect
-                    x={x}
-                    y={height - barHeight}
-                    width={barWidth}
-                    height={barHeight}
-                    rx="1"
+                <g key={item.label + index} className="chart-col">
+                  {/* Zona sensible del ancho completo: el puntero no tiene que
+                      acertarle a una barra fina para ver el dato. */}
+                  <rect x={index * slot} y="0" width={slot} height={height} fill="transparent">
+                    <title>{item.label + ": " + formatValue(item.value)}</title>
+                  </rect>
+
+                  <path
+                    d={barra(x, barHeight)}
                     className="chart-bar"
                     style={{ animationDelay: index * 40 + "ms" }}
-                    fill={item.highlight ? "var(--color-imperial-500)" : "var(--color-ink-600)"}
+                    fill={item.highlight ? "url(#barra-imperial)" : "url(#barra-apagada)"}
                   />
+
                   {secondaryHeight > 0 ? (
-                    <rect
-                      x={x}
-                      y={height - secondaryHeight}
-                      width={barWidth}
-                      height={secondaryHeight}
-                      rx="1"
+                    <path
+                      d={barra(x, secondaryHeight)}
                       className="chart-bar"
                       style={{ animationDelay: index * 40 + 120 + "ms" }}
-                      fill="var(--color-jade-500)"
-                      opacity="0.85"
+                      fill="url(#barra-jade)"
+                      opacity="0.9"
                     />
                   ) : null}
                 </g>
@@ -127,7 +190,7 @@ export function BarChart({
             })}
           </svg>
 
-          <div className="mt-2 flex" style={{ minWidth: Math.max(320, data.length * 46) }}>
+          <div className="mt-2 flex" style={{ minWidth: width }}>
             {data.map((item, index) => (
               <div
                 key={item.label + index}
@@ -182,20 +245,60 @@ export function LineChart({
   }
 
   const max = niceCeiling(Math.max(...data.map((item) => item.value)));
-  const stepX = 100 / (data.length - 1);
+
+  // En píxeles reales, igual que las barras: si no, el trazo se ve más grueso
+  // en un eje que en el otro y los puntos salen ovalados.
+  const width = Math.max(320, data.length * 58);
+  const margen = 6;
+  const stepX = (width - margen * 2) / (data.length - 1);
+  const alto = height - margen * 2;
+
   const points = data.map((item, index) => ({
-    x: index * stepX,
-    y: height - (item.value / max) * (height - 8) - 4,
+    x: margen + index * stepX,
+    y: height - margen - (item.value / max) * alto,
   }));
 
-  const path = points
-    .map(
-      (point, index) => (index === 0 ? "M" : "L") + point.x.toFixed(2) + " " + point.y.toFixed(2),
-    )
-    .join(" ");
+  /**
+   * Curva suave en vez de quebrada.
+   *
+   * Con segmentos rectos, una serie de diez semanas parece un electrocardiograma
+   * y los picos se leen más dramáticos de lo que son. La curva usa puntos de
+   * control a mitad de camino, así que pasa exactamente por cada valor: suaviza
+   * el dibujo sin mover ni un dato.
+   */
+  const path = points.reduce((acumulado, punto, index) => {
+    if (index === 0) return "M" + punto.x.toFixed(1) + " " + punto.y.toFixed(1);
+    const previo = points[index - 1];
+    if (!previo) return acumulado;
+    const medio = (previo.x + punto.x) / 2;
+    return (
+      acumulado +
+      " C" +
+      medio.toFixed(1) +
+      " " +
+      previo.y.toFixed(1) +
+      " " +
+      medio.toFixed(1) +
+      " " +
+      punto.y.toFixed(1) +
+      " " +
+      punto.x.toFixed(1) +
+      " " +
+      punto.y.toFixed(1)
+    );
+  }, "");
 
   const area =
-    path + " L" + (points.at(-1)?.x ?? 0).toFixed(2) + " " + height + " L0 " + height + " Z";
+    path +
+    " L" +
+    (points.at(-1)?.x ?? 0).toFixed(1) +
+    " " +
+    height +
+    " L" +
+    margen +
+    " " +
+    height +
+    " Z";
 
   const formatValue = (value: number): string =>
     format === "money"
@@ -206,61 +309,76 @@ export function LineChart({
 
   return (
     <figure className="w-full">
-      <svg
-        viewBox={`0 0 100 ${height}`}
-        preserveAspectRatio="none"
-        height={height}
-        className="w-full"
-        role="img"
-        aria-label={"Evolución de " + data.length + " períodos"}
-      >
-        <defs>
-          <linearGradient id="fade-imperial" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--color-imperial-500)" stopOpacity="0.24" />
-            <stop offset="100%" stopColor="var(--color-imperial-500)" stopOpacity="0" />
-          </linearGradient>
-        </defs>
+      <div className="scroll-x">
+        <svg
+          viewBox={"0 0 " + width + " " + height}
+          height={height}
+          className="w-full"
+          style={{ minWidth: width }}
+          role="img"
+          aria-label={"Evolución de " + data.length + " períodos"}
+        >
+          <defs>
+            <linearGradient id="fade-imperial" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--color-imperial-500)" stopOpacity="0.28" />
+              <stop offset="100%" stopColor="var(--color-imperial-500)" stopOpacity="0" />
+            </linearGradient>
+            {/* El resplandor del trazo: es lo que lo despega del fondo negro. */}
+            <filter id="brillo-linea" x="-20%" y="-40%" width="140%" height="180%">
+              <feGaussianBlur stdDeviation="3" result="borroso" />
+              <feMerge>
+                <feMergeNode in="borroso" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
 
-        {[0, 0.5, 1].map((ratio) => (
-          <line
-            key={ratio}
-            x1="0"
-            x2="100"
-            y1={height - ratio * height}
-            y2={height - ratio * height}
-            stroke={AXIS}
-            strokeWidth="1"
-            vectorEffect="non-scaling-stroke"
-          />
-        ))}
+          {[0, 0.5, 1].map((ratio) => (
+            <line
+              key={ratio}
+              x1="0"
+              x2={width}
+              y1={height - ratio * height}
+              y2={height - ratio * height}
+              stroke={AXIS}
+              strokeWidth="1"
+            />
+          ))}
 
-        <path d={area} fill="url(#fade-imperial)" className="anim-fade" />
-        <path
-          d={path}
-          fill="none"
-          stroke="var(--color-imperial-500)"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          vectorEffect="non-scaling-stroke"
-          className="chart-line"
-          style={{ "--dash": 400 } as React.CSSProperties}
-        />
-        {points.map((point, index) => (
-          <circle
-            key={index}
-            cx={point.x}
-            cy={point.y}
-            r="2"
-            fill="var(--color-ink-950)"
+          <path d={area} fill="url(#fade-imperial)" className="anim-fade" />
+          <path
+            d={path}
+            fill="none"
             stroke="var(--color-imperial-500)"
-            strokeWidth="1.6"
-            vectorEffect="non-scaling-stroke"
-            className="anim-fade"
-            style={{ animationDelay: 700 + index * 40 + "ms" }}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            filter="url(#brillo-linea)"
+            className="chart-line"
+            style={{ "--dash": width * 2 } as React.CSSProperties}
           />
-        ))}
-      </svg>
+
+          {points.map((point, index) => (
+            <g key={index} className="chart-punto">
+              <circle
+                cx={point.x}
+                cy={point.y}
+                r="3"
+                fill="var(--color-ink-950)"
+                stroke="var(--color-imperial-500)"
+                strokeWidth="2"
+                className="anim-fade"
+                style={{ animationDelay: 700 + index * 40 + "ms" }}
+              />
+              <circle cx={point.x} cy={point.y} r="10" fill="transparent">
+                <title>
+                  {(data[index]?.label ?? "") + ": " + formatValue(data[index]?.value ?? 0)}
+                </title>
+              </circle>
+            </g>
+          ))}
+        </svg>
+      </div>
 
       <div className="text-chalk-600 mt-2 flex justify-between text-[0.625rem]">
         <span>{data[0]?.label}</span>
@@ -311,9 +429,12 @@ export function DistributionBars({
               {formatValue(item.value)}
             </span>
           </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.05]">
+          <div className="pista h-1.5 overflow-hidden rounded-full">
             <div
-              className={cn("bar-grow h-full rounded-full", item.tone ?? "bg-imperial-500")}
+              className={cn(
+                "bar-grow barra-viva h-full rounded-full",
+                item.tone ?? "bg-imperial-500",
+              )}
               style={{ width: Math.max(2, (item.value / max) * 100) + "%" }}
             />
           </div>
@@ -347,7 +468,7 @@ export function ProgressMeter({
         <span className="tnum text-chalk-200 font-semibold">{percentage}%</span>
       </div>
       <div
-        className="h-2 overflow-hidden rounded-full bg-white/[0.05]"
+        className="pista h-2 overflow-hidden rounded-full"
         role="progressbar"
         aria-valuenow={percentage}
         aria-valuemin={0}
@@ -355,7 +476,10 @@ export function ProgressMeter({
         aria-label={label}
       >
         <div
-          className={cn("h-full rounded-full transition-[width] duration-700 ease-out", tone)}
+          className={cn(
+            "barra-viva h-full rounded-full transition-[width] duration-700 ease-out",
+            tone,
+          )}
           style={{ width: percentage + "%" }}
         />
       </div>
