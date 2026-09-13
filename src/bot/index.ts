@@ -29,7 +29,6 @@ import { consumir } from "@/lib/core/throttle";
 import { logger } from "@/lib/core/logger";
 import { formatDuration, localDate } from "@/domain/clock";
 import { GROUP_DEFINITIONS, isStaffGroup, type StaffGroup } from "@/domain/groups";
-import { RANK_DEFINITIONS, isStaffRank } from "@/domain/ranks";
 import {
   closeShift,
   findMemberByDiscord,
@@ -49,6 +48,14 @@ import {
 import { notifyPayment } from "@/server/discord-notify";
 import { COLOR, GROUP_COLOR, botConfig, groupChannels } from "./config";
 import { emoji, revisarEmojis } from "./emojis";
+import {
+  FRENO_AUTOCOMPLETADO,
+  MENCIONES_PERMITIDAS,
+  decidirAdministracion,
+  esDeOtroServidor,
+  esIdDeDiscord,
+  esIdDeFicha,
+} from "./guardia";
 import { actualizarPresencia } from "./presencia";
 import { startScheduler } from "./tasks";
 import {
@@ -83,54 +90,34 @@ const config = botConfig();
 const client = new Client({
   // Sin intents privilegiados: el bot vive de interacciones, no lee mensajes.
   intents: [GatewayIntentBits.Guilds],
+  // Sólo suenan menciones a personas: nunca @everyone ni roles. Ver `guardia.ts`.
+  allowedMentions: MENCIONES_PERMITIDAS,
 });
 
-/** Desde ADM para arriba se considera administración del fichaje. */
-const TIER_ADMIN = RANK_DEFINITIONS.ADM.tier;
-
-function esAdministracion(member: ShiftMember | null): boolean {
-  if (!member) return false;
-  return isStaffRank(member.rank) && RANK_DEFINITIONS[member.rank].tier >= TIER_ADMIN;
-}
-
 /**
- * Quién puede administrar el fichaje.
+ * Quién puede administrar el fichaje: de ADM para arriba por rango, o quien
+ * administra el servidor de Discord mientras no haya ningún ADM vinculado. La
+ * regla, con sus porqués y sus tests, vive en `guardia.ts`.
  *
- * Normalmente se decide por el RANGO de la ficha, que es la jerarquía real de
- * Imperio RP y no un rol de Discord que cualquiera puede repartir.
- *
- * Pero hay un caso que esa regla sola no cubre: el primer día no hay ninguna
- * ficha vinculada, así que nadie tendría rango, así que nadie podría vincular a
- * nadie —ni a sí mismo. Para eso está la segunda puerta: quien administra el
- * servidor de Discord puede hacer el arranque. No es un agujero, es la única
- * forma de que el sistema pueda empezar.
+ * Acepta cualquier interacción —también el autocompletado, que no se contesta
+ * con un mensaje— porque lo único que mira es quién es y qué permisos de
+ * Discord tiene.
  */
 async function puedeAdministrar(
-  interaction: RepliableInteraction,
+  interaction: Pick<Interaction, "user" | "memberPermissions">,
 ): Promise<{ ok: boolean; member: ShiftMember | null }> {
   const member = await findMemberByDiscord(interaction.user.id);
-  if (esAdministracion(member)) return { ok: true, member };
-
-  /**
-   * La puerta de emergencia, y por qué se cierra sola.
-   *
-   * Al principio nadie está vinculado, así que ningún comando de administración
-   * podría usarse jamás: el primer vínculo tiene que poder crearlo alguien, y
-   * ese alguien es quien administra el servidor de Discord.
-   *
-   * Pero quien administra un servidor de Discord no es necesariamente ADM del
-   * staff. Con la puerta abierta para siempre, cualquiera con permisos de
-   * Discord podría ver lo que cobra cualquiera, o apuntar los fichajes de otro
-   * a su propia ficha. En cuanto hay un ADM vinculado, deja de valer.
-   */
-  if (await hayAdministracionVinculada()) return { ok: false, member };
-
   const permisos = interaction.memberPermissions;
-  const esDuenoDelServidor =
-    permisos?.has(PermissionFlagsBits.ManageGuild) === true ||
-    permisos?.has(PermissionFlagsBits.Administrator) === true;
 
-  return { ok: esDuenoDelServidor, member };
+  const ok = await decidirAdministracion({
+    member,
+    hayAdministracionVinculada,
+    gestionaServidor:
+      permisos?.has(PermissionFlagsBits.ManageGuild) === true ||
+      permisos?.has(PermissionFlagsBits.Administrator) === true,
+  });
+
+  return { ok, member };
 }
 
 /**
@@ -607,7 +594,7 @@ async function manejarSelect(interaction: StringSelectMenuInteraction): Promise<
   if (interaction.customId.startsWith("fichaje:vincularficha:")) {
     const discordUserId = interaction.customId.split(":")[2];
     const staffMemberId = interaction.values[0];
-    if (!discordUserId || !staffMemberId) return;
+    if (!esIdDeDiscord(discordUserId) || !esIdDeFicha(staffMemberId)) return;
 
     const usuario = await client.users.fetch(discordUserId).catch(() => null);
     const vinculado = await linkDiscordAccount(
@@ -939,6 +926,18 @@ async function manejarComando(interaction: ChatInputCommandInteraction): Promise
     const usuario = interaction.options.getUser("usuario", true);
     const staffMemberId = interaction.options.getString("staff", true);
 
+    // Discord deja mandar texto suelto en vez de elegir de la lista.
+    if (!esIdDeFicha(staffMemberId)) {
+      await responder(
+        interaction,
+        errorUi(
+          "Elegí la ficha de la lista que aparece al escribir el nombre: con el texto suelto no " +
+            "hay forma de saber de quién es.",
+        ),
+      );
+      return;
+    }
+
     const vinculado = await linkDiscordAccount(staffMemberId, usuario.id, usuario.username);
     await responder(
       interaction,
@@ -976,6 +975,26 @@ async function manejarComando(interaction: ChatInputCommandInteraction): Promise
 
 client.on(Events.InteractionCreate, async (interaction: Interaction) => {
   try {
+    /**
+     * Sólo el servidor de Imperio RP, y los privados.
+     *
+     * Va antes que todo lo demás: lo de otro servidor no toca la base ni
+     * gasta el freno de nadie. Queda anotado, porque si el bot se mudó de
+     * servidor y `DISCORD_GUILD_ID` quedó viejo, esto es lo que va a decirlo.
+     */
+    if (esDeOtroServidor(interaction.guildId, config.guildId)) {
+      logger.warn("Interacción desde otro servidor de Discord, ignorada", {
+        servidor: interaction.guildId,
+      });
+      if (interaction.isRepliable()) {
+        await interaction.reply({
+          content: "Este bot sólo atiende en el servidor de Imperio RP.",
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      return;
+    }
+
     /**
      * Discord da TRES SEGUNDOS para contestar, y después muestra "la
      * aplicación no responde" sin importar lo que pase después. Una base
@@ -1024,6 +1043,22 @@ client.on(Events.InteractionCreate, async (interaction: Interaction) => {
     if (interaction.isUserSelectMenu()) return void (await manejarUserSelect(interaction));
 
     if (interaction.isAutocomplete()) {
+      /**
+       * El autocompletado de `/vincular` lista fichas del staff: nombre, rango
+       * e identificador. Discord lo dispara con cada tecla y a CUALQUIERA que
+       * escriba el comando —el permiso se mira recién al ejecutarlo—, así que
+       * sin esto cualquier miembro del servidor recorría la lista entera, y
+       * apretando teclas sin parar tenía a la base consultando sin freno.
+       */
+      const libre = consumir(
+        "discord-autocompletar:" + interaction.user.id,
+        FRENO_AUTOCOMPLETADO,
+      ).permitido;
+      if (!libre || !(await puedeAdministrar(interaction)).ok) {
+        await interaction.respond([]);
+        return;
+      }
+
       const escrito = interaction.options.getFocused().toLowerCase();
       const fichas = await listUnlinkedMembers(escrito || null, 25);
       await interaction.respond(

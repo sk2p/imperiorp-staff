@@ -4,11 +4,13 @@ import { NextResponse, type NextRequest } from "next/server";
 import { PERMISSIONS } from "@/domain/permissions";
 import { formatPeriodLabel } from "@/domain/periods";
 import { toDecimalHours } from "@/domain/time";
-import { requirePermission } from "@/lib/auth/context";
+import { requirePermission, type ActorContext } from "@/lib/auth/context";
+import { httpStatusFor, serializeError } from "@/lib/core/errors";
 import { logger } from "@/lib/core/logger";
 import { logAudit } from "@/server/audit";
 import { getSettlement } from "@/server/payments";
 import { requireWeek } from "@/server/weeks";
+import { uuidSchema } from "@/validation/common";
 
 export const dynamic = "force-dynamic";
 
@@ -36,11 +38,31 @@ export const dynamic = "force-dynamic";
  * exactamente la clase de cosa que tiene que dejar rastro.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const { actor } = await requirePermission(PERMISSIONS.DATA_EXPORT);
+  /**
+   * Sin sesión o sin permiso: 401 o 403, con su mensaje.
+   *
+   * La excepción de `requirePermission` salía de la ruta sin atrapar y Next la
+   * convertía en un 500. El archivo no se entregaba igual, pero para quien mira
+   * de afuera decía "se rompió el servidor" en vez de "no tenés acceso", y en
+   * los logs quedaba un error falso por cada visita sin sesión.
+   */
+  let actor: ActorContext;
+  try {
+    ({ actor } = await requirePermission(PERMISSIONS.DATA_EXPORT));
+  } catch (error) {
+    return NextResponse.json(serializeError(error), {
+      status: httpStatusFor(error),
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
 
   const weekId = request.nextUrl.searchParams.get("periodo");
   if (!weekId) {
     return NextResponse.json({ ok: false, error: "Falta el período." }, { status: 400 });
+  }
+  // Un identificador inventado llegaba a la base y volvía como error interno.
+  if (!uuidSchema.safeParse(weekId).success) {
+    return NextResponse.json({ ok: false, error: "Período inválido." }, { status: 400 });
   }
 
   try {

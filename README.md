@@ -357,7 +357,9 @@ pnpm db:studio      # Explorador visual de la base
 
 - `GET /api/health` — el proceso está vivo (no toca la base).
 - `GET /api/ready` — la base responde y la configuración es válida. Devuelve
-  `503` si algo anda mal.
+  `503` si algo anda mal. El código de estado lo ve cualquiera; el detalle
+  (migraciones, Discord, huella del `SESSION_SECRET`) sólo un Fundador con
+  sesión o un pedido con `Authorization: Bearer $CRON_SECRET`.
 
 Los logs salen en JSON por línea, con las contraseñas y los tokens redactados
 automáticamente.

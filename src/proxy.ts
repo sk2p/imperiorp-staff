@@ -271,6 +271,16 @@ export function proxy(request: NextRequest): NextResponse {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    /**
+     * Quedan afuera los archivos estáticos, y sólo los de la RAÍZ.
+     *
+     * Antes se salteaba cualquier ruta terminada en .png, .svg o .webp, en
+     * cualquier nivel. `/staff/[id]` acepta cualquier id, así que
+     * `/staff/algo.png` se servía como pantalla del panel sin pasar por acá:
+     * sin política de contenido, sin `frame-ancestors` y sin freno. Los
+     * archivos públicos viven todos en la raíz de `public/`.
+     * Ver `tests/seguridad-web.test.ts`.
+     */
+    "/((?!_next/static|_next/image|favicon.ico|[^/]+\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

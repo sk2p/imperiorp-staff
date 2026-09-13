@@ -195,10 +195,33 @@ export async function requireAuth(): Promise<AuthContext> {
 }
 
 /**
+ * Sesión, y además con la contraseña temporal ya cambiada.
+ *
+ * La pantalla ya lo imponía —el layout redirige a /cambiar-contrasena—, pero
+ * una pantalla no es una defensa: las acciones y las rutas de la API se pueden
+ * llamar directo, y la propia página de cambio le da a esa sesión un token
+ * anti-CSRF válido. Sin esto, la contraseña temporal —la que viajó por un chat—
+ * servía para operar indefinidamente sin cambiarla nunca.
+ *
+ * Por eso va en todos los `require*` que piden algo más que sesión, y no en
+ * `requireAuth`: cambiar la contraseña y cerrar las sesiones propias sólo piden
+ * sesión, y tienen que seguir andando justamente en ese estado.
+ */
+async function requireAuthConContrasenaDefinitiva(): Promise<AuthContext> {
+  const contexto = await requireAuth();
+  if (contexto.user.mustChangePassword) {
+    throw forbidden("Antes de seguir tenés que cambiar la contraseña temporal.", {
+      context: { username: contexto.user.username },
+    });
+  }
+  return contexto;
+}
+
+/**
  * Exige un permiso concreto. Falla cerrado: cualquier duda termina en 403.
  */
 export async function requirePermission(permission: Permission): Promise<AuthContext> {
-  const context = await requireAuth();
+  const context = await requireAuthConContrasenaDefinitiva();
 
   if (!hasPermission(context.user, permission)) {
     throw forbidden("No tenés permiso para esta acción. Requiere: " + permission + ".", {
@@ -213,7 +236,7 @@ export async function requirePermission(permission: Permission): Promise<AuthCon
 export async function requireAnyPermission(
   permissions: readonly Permission[],
 ): Promise<AuthContext> {
-  const context = await requireAuth();
+  const context = await requireAuthConContrasenaDefinitiva();
 
   const granted = permissions.some((permission) => hasPermission(context.user, permission));
   if (!granted) {
@@ -227,7 +250,7 @@ export async function requireAnyPermission(
 
 /** Sólo OWNER. Reservado para lo verdaderamente irreversible. */
 export async function requireOwner(): Promise<AuthContext> {
-  const context = await requireAuth();
+  const context = await requireAuthConContrasenaDefinitiva();
   if (!hasFullAccess(context.user.role)) {
     throw forbidden("Esta acción está reservada al Owner del sistema.");
   }
@@ -249,7 +272,7 @@ export async function requireOwner(): Promise<AuthContext> {
  * del equipo, no sobre el servidor, así que queda en pocas manos.
  */
 export async function requireFounder(seccion = "Esta sección"): Promise<AuthContext> {
-  const context = await requireAuth();
+  const context = await requireAuthConContrasenaDefinitiva();
   if (context.user.role !== "FOUNDER") {
     throw forbidden(
       seccion + " está reservada a los encargados de la página. Si la necesitás, pedísela a ellos.",

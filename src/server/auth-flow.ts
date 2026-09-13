@@ -1,6 +1,7 @@
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { users } from "@/db/schema";
+import { esMarcaValida, leerMarcaDeDispositivo, recordarDispositivo } from "@/lib/auth/dispositivo";
 import { fakeVerifyPassword, hashPassword, verifyPassword } from "@/lib/auth/password";
 import {
   checkLoginRateLimit,
@@ -28,6 +29,8 @@ import { recordSecurityEvent } from "./security-events";
  *  · El límite de intentos se consulta ANTES de tocar la contraseña.
  *  · La sesión se crea recién después de validar, con un token nuevo: no hay
  *    forma de fijar una sesión de antemano.
+ *
+ * Probado contra una base real en `tests/seguridad-acceso.test.ts`.
  */
 const GENERIC_ERROR = "Usuario o contraseña incorrectos.";
 export interface LoginOutcome {
@@ -84,8 +87,17 @@ export async function performLogin(
    *
    * Se responde con el mismo error genérico y sin decir que la cuenta está
    * bloqueada: confirmar el bloqueo ya sería confirmar que la cuenta existe.
+   * Por lo mismo, el rechazo gasta lo que gasta verificar una contraseña: si
+   * contestara al instante, lo rápido de la respuesta lo delataría.
+   *
+   * La excepción es el navegador donde el dueño ya entró antes. Sin ella el
+   * bloqueo es un arma: con saber el nombre de usuario, cualquiera deja afuera
+   * a quien quiera. Ver `lib/auth/dispositivo.ts`.
    */
-  if (user.lockedUntil && user.lockedUntil.getTime() > Date.now()) {
+  const ahora = Date.now();
+  const bloqueada = user.lockedUntil !== null && user.lockedUntil.getTime() > ahora;
+  if (bloqueada && !esMarcaValida(await leerMarcaDeDispositivo(), user)) {
+    await fakeVerifyPassword();
     await recordSecurityEvent({
       type: "LOGIN_BLOCKED",
       userId: user.id,
@@ -94,7 +106,7 @@ export async function performLogin(
       userAgent: metadata.userAgent,
       details: {
         reason: "cuenta bloqueada por intentos fallidos",
-        hasta: user.lockedUntil.toISOString(),
+        hasta: user.lockedUntil?.toISOString(),
       },
     });
     throw unauthenticated(GENERIC_ERROR);
@@ -104,7 +116,18 @@ export async function performLogin(
   if (!check.valid) {
     await registerFailedLogin(metadata.ip, username);
 
-    const fallos = user.failedLoginCount + 1;
+    /**
+     * Un bloqueo vencido no deja la cuenta cargada.
+     *
+     * El contador de fallos sólo volvía a cero al entrar bien. Pasados los
+     * quince minutos la cuenta seguía con cinco fallos anotados, y el sexto
+     * —uno solo— la volvía a bloquear otros quince: para tener a alguien
+     * afuera para siempre bastaba un intento cada cuarto de hora. Ahora, al
+     * vencer el bloqueo, la cuenta arranca de cero y hay que juntar cinco
+     * otra vez.
+     */
+    const bloqueoVencido = user.lockedUntil !== null && user.lockedUntil.getTime() <= ahora;
+    const fallos = (bloqueoVencido ? 0 : user.failedLoginCount) + 1;
     const env = getEnv();
     const bloquear = fallos >= env.MAX_LOGIN_ATTEMPTS;
 
@@ -113,10 +136,10 @@ export async function performLogin(
       .set({
         failedLoginCount: fallos,
         ...(bloquear
-          ? {
-              lockedUntil: new Date(Date.now() + env.LOGIN_LOCKOUT_WINDOW_MINUTES * 60 * 1000),
-            }
-          : {}),
+          ? { lockedUntil: new Date(ahora + env.LOGIN_LOCKOUT_WINDOW_MINUTES * 60 * 1000) }
+          : bloqueoVencido
+            ? { lockedUntil: null }
+            : {}),
       })
       .where(eq(users.id, user.id));
     await recordSecurityEvent({
@@ -157,13 +180,20 @@ export async function performLogin(
     .where(eq(users.id, user.id));
   const { rawToken } = await createSession(user.id, metadata);
   await setSessionCookie(rawToken);
+  // Este navegador pasa a ser conocido: un bloqueo futuro no lo deja afuera.
+  await recordarDispositivo(user);
   await recordSecurityEvent({
     type: "LOGIN_SUCCESS",
     userId: user.id,
     username: user.username,
     ip: metadata.ip,
     userAgent: metadata.userAgent,
-    details: { role: user.role, hashActualizado: Boolean(rehash) },
+    details: {
+      role: user.role,
+      hashActualizado: Boolean(rehash),
+      // Entró su dueño mientras alguien más tenía la cuenta bloqueada: vale mirarlo.
+      ...(bloqueada ? { conCuentaBloqueada: true } : {}),
+    },
   });
   logger.info("Acceso correcto", { username: user.username, role: user.role });
   return {

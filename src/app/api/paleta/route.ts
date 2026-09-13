@@ -22,7 +22,8 @@ export async function GET(): Promise<NextResponse> {
   const contexto = await getAuthContext();
   if (!contexto) return NextResponse.json({ ok: false }, { status: 401, headers: SIN_CACHE });
 
-  if (!contexto.can(PERMISSIONS.STAFF_VIEW)) {
+  // Con la contraseña temporal pendiente, tampoco: primero se cambia.
+  if (!contexto.can(PERMISSIONS.STAFF_VIEW) || contexto.user.mustChangePassword) {
     return NextResponse.json({ ok: true, staff: [] }, { headers: SIN_CACHE });
   }
 

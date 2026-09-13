@@ -102,6 +102,11 @@ export async function notifyPayment(notice: PaymentNotice): Promise<void> {
       body: JSON.stringify({
         flags: IS_COMPONENTS_V2,
         components: [contenedor(notice)],
+        /**
+         * Nadie sale mencionado. El motivo de una anulación lo escribe una
+         * persona, y un "@everyone" ahí notificaba al canal entero.
+         */
+        allowed_mentions: { parse: [] as string[] },
       }),
       // Si Discord tarda, se abandona: nadie espera por un aviso.
       signal: AbortSignal.timeout(5000),
@@ -214,6 +219,7 @@ export async function notifyPaymentsPrivately(
       const mensaje = await llamarDiscord(token, "/channels/" + id + "/messages", {
         flags: IS_COMPONENTS_V2,
         components: [contenedorPrivado(notice)],
+        allowed_mentions: { parse: [] as string[] },
       });
 
       if (!mensaje.ok) {

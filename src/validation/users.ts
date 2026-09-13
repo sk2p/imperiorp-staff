@@ -50,7 +50,17 @@ export const loginSchema = z.object({
     .transform((value) => {
       if (!value) return null;
       // Sólo rutas absolutas del propio sitio. `//evil.com` y `https://…` quedan fuera.
-      return /^\/(?!\/)[A-Za-z0-9/_\-?=&.%]*$/.test(value) ? value : null;
+      if (!/^\/(?!\/)[A-Za-z0-9/_\-?=&.%]*$/.test(value)) return null;
+
+      /**
+       * Y una segunda mirada, con el mismo intérprete de direcciones que usa el
+       * navegador. `/.//evil.com` pasa la expresión de arriba —empieza con una
+       * sola barra— pero al resolverse queda en `//evil.com`, que según quién
+       * lo lea es otro sitio. Lo que no se queda en casa, no se usa.
+       */
+      const resuelta = new URL(value, "https://panel.invalid");
+      if (resuelta.host !== "panel.invalid" || resuelta.pathname.startsWith("//")) return null;
+      return value;
     }),
 });
 

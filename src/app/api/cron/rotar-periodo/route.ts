@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { portadorValido } from "@/lib/auth/secreto-compartido";
 import { getEnv } from "@/lib/core/env";
 import { logger } from "@/lib/core/logger";
 import { ensureCurrentPeriod, rotatePeriodIfDue } from "@/server/rotation";
@@ -17,7 +18,8 @@ export const maxDuration = 60;
  * secreto compartido. Vercel lo envía en `Authorization: Bearer $CRON_SECRET`.
  * Sin `CRON_SECRET` definido, la ruta queda cerrada en producción: es preferible
  * que la rotación no ocurra a que cualquiera pueda cerrar el período del staff
- * llamando a una URL.
+ * llamando a una URL. La comparación es de tiempo constante: ver
+ * `lib/auth/secreto-compartido.ts`.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const secret = process.env.CRON_SECRET;
@@ -31,7 +33,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         { status: 503 },
       );
     }
-  } else if (authorization !== "Bearer " + secret) {
+  } else if (!portadorValido(authorization, secret)) {
     logger.warn("Intento de ejecutar la rotación sin credencial válida");
     return NextResponse.json({ ok: false, error: "No autorizado." }, { status: 401 });
   }
