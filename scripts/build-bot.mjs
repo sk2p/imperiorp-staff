@@ -117,7 +117,7 @@ await writeFile(
     "El .env NO está acá a propósito: lleva el token del bot y la",
     "cadena de conexión a la base. Se carga aparte, en el panel del host.",
     "",
-    "Memoria esperada: unos 120 MB en reposo.",
+    "Memoria esperada: unos 90 MB en reposo, con un pico de ~220 al arrancar.",
     "",
     "Generado por: pnpm bot:build",
   ].join("\n") + "\n",
