@@ -3,28 +3,33 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 
+import { INTERVALO_MS, hayQueRedibujar, tocaMirar } from "@/lib/core/refresco";
+
 /**
  * Refresco en vivo de la pantalla.
  *
  * Todas las páginas se renderizan en el servidor, así que lo que se ve es una
  * foto del momento en que se cargó. Si mati carga las horas del martes, pit no
- * se enteraba hasta recargar a mano. Esto vuelve a pedir los datos cada tanto y
- * React reemplaza sólo lo que cambió: no se pierde el scroll, ni lo que estabas
- * escribiendo, ni se ve un parpadeo.
+ * se enteraba hasta recargar a mano. Esto vuelve a pedir los datos cuando hay
+ * algo nuevo y React reemplaza sólo lo que cambió: no se pierde el scroll, ni
+ * lo que estabas escribiendo, ni se ve un parpadeo.
  *
- * Tres detalles que hacen que no moleste:
+ * Primero pregunta, después redibuja. Antes redibujaba la pantalla entera cada
+ * doce segundos, hubiera cambios o no: más de una docena de consultas por
+ * pestaña, todo el día, para mostrar lo mismo. Ahora cada doce segundos pide
+ * la firma de los datos —una consulta chica— y sólo si cambió pide la pantalla.
+ * Los detalles están en `lib/core/refresco.ts`.
  *
- *   · Con la pestaña en segundo plano no se pide nada. No tiene sentido gastar
- *     consultas contra una pantalla que nadie está mirando, y menos en el plan
- *     gratuito de Neon.
- *   · Al volver a la pestaña refresca de inmediato, que es el momento exacto en
- *     que a uno le importa estar viendo lo último.
+ * Lo que hace que no moleste:
+ *
+ *   · Con la pestaña en segundo plano no se pide nada.
+ *   · Al volver a la pestaña se pregunta de inmediato, que es el momento exacto
+ *     en que a uno le importa estar viendo lo último.
+ *   · Una pantalla que quedó sola —cinco minutos sin mouse ni teclado— pregunta
+ *     una vez por minuto en lugar de cinco.
  *   · Mientras hay un menú abierto o algo enfocado —un campo de la planilla a
- *     medio escribir— el refresco espera. Nada se reemplaza abajo de la mano.
+ *     medio escribir— se espera. Nada se reemplaza abajo de la mano.
  */
-
-/** Cada cuánto se vuelve a pedir la pantalla, con la pestaña a la vista. */
-const INTERVAL_MS = 12_000;
 
 function isBusy(): boolean {
   /**
@@ -56,54 +61,141 @@ function isBusy(): boolean {
   return document.querySelector('[role="menu"], [role="dialog"], dialog[open]') !== null;
 }
 
-export function LiveRefresh() {
+/** Lo que cuenta como "hay alguien usando la pantalla". */
+const ACTIVIDAD = ["pointerdown", "pointermove", "keydown", "wheel", "touchstart"] as const;
+
+export function LiveRefresh({ firma }: { readonly firma: string | null }) {
   const router = useRouter();
   const pathname = usePathname();
-  const pending = useRef(false);
+
+  /**
+   * La firma de lo que se está viendo. Llega con cada render del servidor, así
+   * que después de redibujar ya es la nueva sin que haya que anotarla a mano.
+   */
+  const firmaPantalla = useRef(firma);
 
   useEffect(() => {
+    firmaPantalla.current = firma;
+  }, [firma]);
+
+  useEffect(() => {
+    const montado = Date.now();
+    let ultimaMirada = montado;
+    let ultimoRedibujo = montado;
+    let ultimaActividad = montado;
+    let mirando = false;
     let timer: ReturnType<typeof setInterval> | null = null;
 
-    const refresh = () => {
-      if (document.visibilityState !== "visible") return;
-      if (isBusy()) {
-        // Se reintenta en el próximo tic, cuando la mano esté libre.
-        pending.current = true;
-        return;
-      }
-      pending.current = false;
+    const actividad = () => {
+      ultimaActividad = Date.now();
+    };
+
+    const redibujar = () => {
+      ultimoRedibujo = Date.now();
       router.refresh();
     };
 
-    const start = () => {
-      if (timer) return;
-      timer = setInterval(refresh, INTERVAL_MS);
+    const mirar = async (yaMismo: boolean) => {
+      if (document.visibilityState !== "visible" || mirando) return;
+
+      const momento = Date.now();
+
+      // Al volver a la pestaña se mira ya, pero no dos veces seguidas: el foco
+      // y el cambio de visibilidad suelen llegar juntos.
+      if (yaMismo) {
+        if (momento - ultimaMirada < 2_000) return;
+      } else if (!tocaMirar({ ahora: momento, ultimaMirada, ultimaActividad })) {
+        return;
+      }
+
+      // Con la mano ocupada no se mira: el próximo tic lo vuelve a intentar.
+      if (isBusy()) return;
+
+      mirando = true;
+      ultimaMirada = momento;
+      let firmaServidor: string | null = null;
+
+      try {
+        const respuesta = await fetch("/api/firma", {
+          cache: "no-store",
+          headers: { accept: "application/json" },
+        });
+
+        // La sesión venció: redibujar lleva a la pantalla de ingreso, que es
+        // justo lo que corresponde.
+        if (respuesta.status === 401 || respuesta.redirected) {
+          redibujar();
+          return;
+        }
+
+        if (respuesta.ok) {
+          const datos: unknown = await respuesta.json();
+          if (
+            datos !== null &&
+            typeof datos === "object" &&
+            "firma" in datos &&
+            typeof datos.firma === "string"
+          ) {
+            firmaServidor = datos.firma;
+          }
+        }
+      } catch {
+        // Sin red: se reintenta en el próximo tic.
+      } finally {
+        mirando = false;
+      }
+
+      if (isBusy()) return;
+
+      if (
+        hayQueRedibujar({
+          firmaPantalla: firmaPantalla.current,
+          firmaServidor,
+          ahora: Date.now(),
+          ultimoRedibujo,
+        })
+      ) {
+        redibujar();
+      }
     };
 
-    const stop = () => {
+    // El tic es corto y barato —mira el reloj y nada más—; lo que decide si
+    // de verdad se pregunta es `tocaMirar`.
+    const iniciar = () => {
+      if (timer) return;
+      timer = setInterval(() => void mirar(false), INTERVALO_MS / 3);
+    };
+
+    const detener = () => {
       if (!timer) return;
       clearInterval(timer);
       timer = null;
     };
 
-    const onVisibility = () => {
+    const alCambiarVisibilidad = () => {
       if (document.visibilityState === "visible") {
-        refresh();
-        start();
+        void mirar(true);
+        iniciar();
       } else {
-        stop();
+        detener();
       }
     };
 
-    if (document.visibilityState === "visible") start();
+    const alEnfocar = () => void mirar(true);
 
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("focus", refresh);
+    if (document.visibilityState === "visible") iniciar();
+
+    document.addEventListener("visibilitychange", alCambiarVisibilidad);
+    window.addEventListener("focus", alEnfocar);
+    for (const evento of ACTIVIDAD) {
+      window.addEventListener(evento, actividad, { passive: true });
+    }
 
     return () => {
-      stop();
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("focus", refresh);
+      detener();
+      document.removeEventListener("visibilitychange", alCambiarVisibilidad);
+      window.removeEventListener("focus", alEnfocar);
+      for (const evento of ACTIVIDAD) window.removeEventListener(evento, actividad);
     };
     // `pathname` reinicia el ciclo al navegar: la pantalla nueva arranca limpia.
   }, [router, pathname]);

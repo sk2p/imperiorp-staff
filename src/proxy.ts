@@ -145,11 +145,9 @@ export function proxy(request: NextRequest): NextResponse {
    */
   if (!pathname.startsWith("/_next/") && pathname !== "/api/health") {
     const escribe = request.method !== "GET" && request.method !== "HEAD";
-    const presupuesto = pathname.startsWith(LOGIN_PATH)
-      ? FRENO_ACCESO
-      : escribe
-        ? FRENO_ESCRITURA
-        : FRENO_LECTURA;
+    const tipo = pathname.startsWith(LOGIN_PATH) ? "acceso" : escribe ? "w" : "r";
+    const presupuesto =
+      tipo === "acceso" ? FRENO_ACCESO : tipo === "w" ? FRENO_ESCRITURA : FRENO_LECTURA;
 
     /**
      * En desarrollo el freno se afloja diez veces.
@@ -165,7 +163,10 @@ export function proxy(request: NextRequest): NextResponse {
      */
     const holgura = process.env.NODE_ENV === "production" ? 1 : 10;
 
-    const veredicto = consumir(origenDe(request.headers) + ":" + (escribe ? "w" : "r"), {
+    // Cada presupuesto con su propio contador. Compartido, leer páginas gastaba
+    // el cupo del ingreso —el tope más bajo— y alguien con la sesión vencida
+    // caía en `/ingresar` frenado. Ver `tests/freno-proxy.test.ts`.
+    const veredicto = consumir(origenDe(request.headers) + ":" + tipo, {
       maximo: presupuesto.maximo * holgura,
       ventanaMs: presupuesto.ventanaMs,
     });

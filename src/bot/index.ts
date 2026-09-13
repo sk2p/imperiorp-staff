@@ -38,6 +38,7 @@ import {
   listActiveShifts,
   hayAdministracionVinculada,
   listUnlinkedMembers,
+  paymentHistory,
   periodOverview,
   periodRanking,
   periodSummary,
@@ -48,6 +49,7 @@ import {
 import { notifyPayment } from "@/server/discord-notify";
 import { COLOR, GROUP_COLOR, botConfig, groupChannels } from "./config";
 import { emoji, revisarEmojis } from "./emojis";
+import { actualizarPresencia } from "./presencia";
 import { startScheduler } from "./tasks";
 import {
   aviso,
@@ -56,6 +58,7 @@ import {
   error as errorUi,
   estadoPeriodo,
   etiqueta,
+  historialPagos,
   sinPermiso,
   tablaHoras,
   listaActivos,
@@ -267,6 +270,11 @@ async function manejarBoton(interaction: ButtonInteraction): Promise<void> {
       return void (await accionActivos(interaction, member.group));
     case "mias":
       return void (await accionMisHoras(interaction, member));
+    // Los dos botones del recordatorio por privado: el valor es el fichaje.
+    case "sigo":
+      return void (await accionSigo(interaction, member, valor));
+    case "cerraraviso":
+      return void (await accionCerrarAviso(interaction, member, valor));
     default:
       return;
   }
@@ -299,6 +307,7 @@ async function accionEntrada(
     interaction,
     avisoEntrada(member.rank, member.name, resultado.startedAt, interaction.user.id),
   );
+  void actualizarPresencia(client);
 }
 
 async function accionSalida(interaction: RepliableInteraction, member: ShiftMember): Promise<void> {
@@ -316,6 +325,71 @@ async function accionSalida(interaction: RepliableInteraction, member: ShiftMemb
   await responder(interaction, avisoSalida(resultado));
   // El registro del bloque, público, es el que queda como constancia.
   await publicar(groupChannels(member.group).registro, registroFichaje(resultado));
+  void actualizarPresencia(client);
+}
+
+/**
+ * "Sigo en servicio", desde el recordatorio por privado.
+ *
+ * No toca la base: el fichaje ya está abierto. Confirma que lo que se está
+ * contando es lo que la persona quiere, que es todo lo que el aviso preguntaba.
+ */
+async function accionSigo(
+  interaction: RepliableInteraction,
+  member: ShiftMember,
+  sessionId: string | undefined,
+): Promise<void> {
+  const abierto = await getOpenShift(member.id);
+
+  if (!abierto || abierto.id !== sessionId) {
+    await responder(
+      interaction,
+      aviso(
+        emoji("INFO") + " Ese fichaje ya no está abierto",
+        "Se cerró antes de que respondieras. Si seguís en servicio, dale a **Entrada** en el " +
+          "panel de tu categoría.",
+      ),
+    );
+    return;
+  }
+
+  await responder(
+    interaction,
+    aviso(
+      emoji("EXITO") + " Listo, seguís fichado",
+      "Tu fichaje sigue abierto hace `" +
+        formatDuration(abierto.seconds) +
+        "`. Acordate de dar **Salida** cuando termines.",
+      COLOR.entrada,
+    ),
+  );
+}
+
+/**
+ * "Cerrar fichaje", desde el recordatorio por privado.
+ *
+ * Cierra sólo si el fichaje abierto es EL MISMO del aviso. Si la persona ya
+ * cerró y abrió otro, tocar un aviso viejo no le puede cortar el turno nuevo.
+ */
+async function accionCerrarAviso(
+  interaction: RepliableInteraction,
+  member: ShiftMember,
+  sessionId: string | undefined,
+): Promise<void> {
+  const abierto = await getOpenShift(member.id);
+
+  if (!abierto || abierto.id !== sessionId) {
+    await responder(
+      interaction,
+      aviso(
+        emoji("INFO") + " Ese fichaje ya estaba cerrado",
+        "No hay nada que cerrar: el fichaje de este aviso ya terminó.",
+      ),
+    );
+    return;
+  }
+
+  await accionSalida(interaction, member);
 }
 
 async function accionActivos(interaction: RepliableInteraction, group: StaffGroup): Promise<void> {
@@ -656,12 +730,34 @@ const comandos = [
   new SlashCommandBuilder()
     .setName("periodo")
     .setDescription("Cómo viene el período: horas por categoría y quién no cargó nada"),
+  new SlashCommandBuilder()
+    .setName("mis-pagos")
+    .setDescription("Tus últimos períodos cerrados y si ya se pagaron"),
 ].map((c) => c.toJSON());
 
 async function manejarComando(interaction: ChatInputCommandInteraction): Promise<void> {
   if (interaction.commandName === "mis-horas") {
     const member = await requerirFicha(interaction);
     if (member) await accionMisHoras(interaction, member);
+    return;
+  }
+
+  /**
+   * Los pagos propios, y sólo los propios.
+   *
+   * No lleva opción de usuario a propósito: cualquiera del staff vinculado lo
+   * puede usar, así que no puede servir para ver lo que cobra otro. Eso ya lo
+   * ve administración en la página.
+   */
+  if (interaction.commandName === "mis-pagos") {
+    const member = await requerirFicha(interaction);
+    if (!member) return;
+
+    const lineas = await paymentHistory(member.id);
+    await responder(
+      interaction,
+      historialPagos({ rank: member.rank, name: member.name, group: member.group, lineas }),
+    );
     return;
   }
 
@@ -996,6 +1092,8 @@ client.once(Events.ClientReady, async (listo) => {
   }
 
   startScheduler(client, publicar);
+  // El estado "N en servicio" arranca bien desde el primer minuto.
+  void actualizarPresencia(client);
 });
 
 async function registrarComandos(): Promise<void> {

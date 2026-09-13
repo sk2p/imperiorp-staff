@@ -153,11 +153,12 @@ export async function seedDemoData(): Promise<void> {
       })),
     );
 
-    // Cuatro períodos de 8 días: tres cerrados y pagados, uno abierto.
-    const periodStarts = ["2026-08-11", "2026-08-19", "2026-08-27", "2026-09-04"];
+    // Cuatro períodos de sábado a viernes, como los arma la rotación: tres
+    // cerrados y uno abierto.
+    const periodStarts = ["2026-08-22", "2026-08-29", "2026-09-05", "2026-09-12"];
 
     for (const [index, startDate] of periodStarts.entries()) {
-      const endDate = addDays(startDate, 7);
+      const endDate = addDays(startDate, 6);
       const isOpen = index === periodStarts.length - 1;
 
       const [week] = await tx
@@ -179,11 +180,19 @@ export async function seedDemoData(): Promise<void> {
         let totalMinutes = 0;
         let entryCount = 0;
 
-        // Entre 2 y 5 turnos por persona y período.
+        // Entre 2 y 5 turnos por persona y período, cada uno en un día distinto:
+        // la grilla admite una sola fila por persona y día, y elegir los días
+        // al azar con repetición rompía el seed en el primer día repetido.
         const shifts = 2 + Math.floor(random() * 4);
-        for (let shift = 0; shift < shifts; shift += 1) {
+        const days = [0, 1, 2, 3, 4, 5, 6];
+        for (let i = days.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(random() * (i + 1));
+          [days[i], days[j]] = [days[j]!, days[i]!];
+        }
+
+        for (const offset of days.slice(0, shifts)) {
           const minutes = 60 + Math.floor(random() * 300);
-          const workDate = addDays(startDate, Math.floor(random() * 8));
+          const workDate = addDays(startDate, offset);
           const reason = DEMO_REASONS[Math.floor(random() * DEMO_REASONS.length)] ?? "Turno";
           const recorder = recorders[Math.floor(random() * recorders.length)] ?? recorders[0];
 

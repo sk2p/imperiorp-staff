@@ -117,3 +117,113 @@ export async function notifyPayment(notice: PaymentNotice): Promise<void> {
     logger.warn("No se pudo avisar el pago a Discord", { error });
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Aviso por privado                                                          */
+/* -------------------------------------------------------------------------- */
+
+export interface PrivatePaymentNotice extends PaymentNotice {
+  /** La cuenta vinculada a la ficha. Sin vínculo no hay a quién escribirle. */
+  readonly discordUserId: string;
+}
+
+/**
+ * El mismo aviso, pero a la persona que cobró.
+ *
+ * "¿Ya me pagaron?" es la pregunta que más le llega a quien liquida, todas las
+ * semanas, por privado y de a una. Con esto la respuesta le llega sola a cada
+ * uno en el momento en que se registra el pago, y si se anula, también.
+ */
+function contenedorPrivado(notice: PaymentNotice): unknown {
+  const cuerpo = notice.voided
+    ? "### ❌ Se anuló un pago tuyo\nEl pago de `" +
+      formatMoney(notice.amount) +
+      "` del período **" +
+      notice.period +
+      "** quedó anulado."
+    : "### 💸 Te pagaron\nYa tenés registrado el pago del período **" +
+      notice.period +
+      "**.\n\n💰 **Monto**\n`" +
+      formatMoney(notice.amount) +
+      "`" +
+      (notice.minutes > 0
+        ? "\n\n⏱️ **Horas del período**\n`" + formatMinutes(notice.minutes) + "`"
+        : "");
+
+  return {
+    type: CONTAINER,
+    accent_color: notice.voided ? ROJO : VERDE,
+    components: [
+      { type: TEXT_DISPLAY, content: cuerpo },
+      { type: SEPARATOR, divider: true, spacing: 1 },
+      {
+        type: TEXT_DISPLAY,
+        content:
+          "-# " +
+          (notice.voided ? "Anulado por" : "Registrado por") +
+          " **" +
+          notice.actor +
+          "** · " +
+          localDateTime(new Date()) +
+          (notice.reason ? "\n-# Motivo: " + notice.reason : "") +
+          "\n-# Si algo no coincide, hablalo con quien liquida.",
+      },
+    ],
+  };
+}
+
+async function llamarDiscord(token: string, ruta: string, cuerpo: unknown): Promise<Response> {
+  return fetch("https://discord.com/api/v10" + ruta, {
+    method: "POST",
+    headers: { Authorization: "Bot " + token, "Content-Type": "application/json" },
+    body: JSON.stringify(cuerpo),
+    signal: AbortSignal.timeout(5000),
+  });
+}
+
+/**
+ * Manda los avisos por privado, de a uno.
+ *
+ * De a uno y no todos juntos: "pagar todo" son cuarenta de golpe, y Discord
+ * limita cuántos chats privados abre un bot por segundo. En fila tardan unos
+ * segundos y llegan todos; en paralelo, la mitad rebota.
+ *
+ * No lanza nunca. Alguien con los privados cerrados, o que se fue del servidor,
+ * no recibe el aviso y queda anotado en el log; el pago sigue registrado igual.
+ */
+export async function notifyPaymentsPrivately(
+  notices: readonly PrivatePaymentNotice[],
+): Promise<void> {
+  const token = process.env.DISCORD_TOKEN?.trim();
+  if (!token || notices.length === 0) return;
+
+  for (const notice of notices) {
+    try {
+      const chat = await llamarDiscord(token, "/users/@me/channels", {
+        recipient_id: notice.discordUserId,
+      });
+
+      if (!chat.ok) {
+        logger.warn("No se pudo abrir el privado para avisar un pago", { estado: chat.status });
+        continue;
+      }
+
+      const { id } = (await chat.json()) as { id?: string };
+      if (!id) continue;
+
+      const mensaje = await llamarDiscord(token, "/channels/" + id + "/messages", {
+        flags: IS_COMPONENTS_V2,
+        components: [contenedorPrivado(notice)],
+      });
+
+      if (!mensaje.ok) {
+        logger.warn("Discord rechazó el aviso privado de pago", {
+          estado: mensaje.status,
+          detalle: (await mensaje.text()).slice(0, 200),
+        });
+      }
+    } catch (error) {
+      logger.warn("No se pudo avisar el pago por privado", { error });
+    }
+  }
+}

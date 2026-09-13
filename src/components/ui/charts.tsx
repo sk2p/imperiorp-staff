@@ -61,65 +61,85 @@ export function BarChart({
         : value.toLocaleString("es-AR");
 
   /**
-   * El lienzo se mide en píxeles de verdad.
+   * Barras con volumen.
    *
-   * Antes el `viewBox` era siempre de cien de ancho y el SVG se estiraba para
-   * llenar la caja. Eso deforma todo lo que no sea un rectángulo recto: un
-   * borde redondeado de radio uno terminaba siendo una elipse achatada, y el
-   * ancho de las líneas no coincidía entre ejes. Con el lienzo en píxeles, un
-   * radio de tres píxeles mide tres píxeles.
+   * Cada barra es un prisma: frente, costado y tapa, en tres tonos del mismo
+   * color. Da la profundidad de un gráfico en 3D sin perspectiva real, que
+   * achica lo que queda al fondo y hace mentir a la escala. Acá el frente de
+   * cada barra mide exactamente su valor, desde cero; el volumen va por detrás.
+   *
+   * Con dos series —generado y pagado— van una al lado de la otra. Superpuestas,
+   * como estaban, la de adelante tapaba a la de atrás justo cuando importa
+   * compararlas.
+   *
+   * El lienzo se mide en píxeles de verdad. Con un `viewBox` fijo que se estira
+   * para llenar la caja, el costado de un prisma deja de ser paralelo al frente
+   * y el ancho de las líneas no coincide entre ejes.
    */
-  const width = Math.max(320, data.length * 52);
+  const conPagado = data.some((item) => item.secondary !== undefined);
+  const width = Math.max(360, data.length * 72);
   const slot = width / data.length;
-  const barWidth = Math.min(34, slot * 0.62);
-  const radio = Math.min(4, barWidth / 2);
-  const alto = height - 6;
+  const ancho = conPagado ? Math.min(20, slot * 0.3) : Math.min(30, slot * 0.5);
+  const hondo = Math.max(4, Math.min(9, ancho * 0.42));
+  const subida = hondo * 0.6;
+  /** Entre los dos prismas de un período: el costado del primero no pisa al segundo. */
+  const hueco = hondo + 2;
+  const grupo = conPagado ? ancho * 2 + hueco + hondo : ancho + hondo;
+  const base = height - 1;
+  const alto = height - subida - 8;
 
-  /** Barra con las esquinas de ARRIBA redondeadas y las de abajo rectas. */
-  const barra = (x: number, h: number): string => {
-    const y = height - h;
-    const r = Math.min(radio, h);
+  /** La cara que recibe la luz: el tono más claro de cada color. */
+  const TAPA = { imperial: "#ff7a86", apagada: "#3b424c", jade: "#86efc4" } as const;
+
+  /** De `[x1, y1, x2, y2, …]` a `"x1,y1 x2,y2 …"`, que es lo que pide `points`. */
+  const puntos = (...valores: readonly number[]): string =>
+    valores
+      .map((valor, indice) => valor.toFixed(1) + (indice % 2 === 0 ? "," : " "))
+      .join("")
+      .trim();
+
+  const prisma = (x: number, h: number, tono: keyof typeof TAPA) => {
+    const arriba = base - h;
     return (
-      "M" +
-      x +
-      " " +
-      height +
-      " L" +
-      x +
-      " " +
-      (y + r) +
-      " Q" +
-      x +
-      " " +
-      y +
-      " " +
-      (x + r) +
-      " " +
-      y +
-      " L" +
-      (x + barWidth - r) +
-      " " +
-      y +
-      " Q" +
-      (x + barWidth) +
-      " " +
-      y +
-      " " +
-      (x + barWidth) +
-      " " +
-      (y + r) +
-      " L" +
-      (x + barWidth) +
-      " " +
-      height +
-      " Z"
+      <>
+        <polygon
+          points={puntos(
+            x + ancho,
+            arriba,
+            x + ancho + hondo,
+            arriba - subida,
+            x + ancho + hondo,
+            base - subida,
+            x + ancho,
+            base,
+          )}
+          fill={"url(#barra-lado-" + tono + ")"}
+        />
+        <rect x={x} y={arriba} width={ancho} height={h} fill={"url(#barra-" + tono + ")"} />
+        <polygon
+          points={puntos(
+            x,
+            arriba,
+            x + hondo,
+            arriba - subida,
+            x + ancho + hondo,
+            arriba - subida,
+            x + ancho,
+            arriba,
+          )}
+          style={{ fill: TAPA[tono] }}
+        />
+      </>
     );
   };
 
   return (
     <figure className="w-full">
       <div className="scroll-x">
-        <div style={{ minWidth: width }}>
+        {/* El dibujo y la fila de cifras comparten este ancho exacto. Antes el
+            SVG quedaba a su tamaño real, centrado, y las cifras se estiraban a
+            lo ancho de toda la tarjeta: cada número caía debajo de otra barra. */}
+        <div className="mx-auto" style={{ width, minWidth: width }}>
           <svg
             viewBox={"0 0 " + width + " " + height}
             height={height}
@@ -128,35 +148,62 @@ export function BarChart({
             aria-label={"Gráfico de barras con " + data.length + " valores"}
           >
             <defs>
-              {/* Las barras se aclaran hacia arriba: da volumen sin sombras. */}
+              {/* Frente: se aclara hacia arriba. Costado: el mismo color, en sombra. */}
               <linearGradient id="barra-imperial" x1="0" y1="1" x2="0" y2="0">
                 <stop offset="0%" stopColor="var(--color-imperial-700)" />
                 <stop offset="100%" stopColor="var(--color-imperial-400)" />
+              </linearGradient>
+              <linearGradient id="barra-lado-imperial" x1="0" y1="1" x2="0" y2="0">
+                <stop offset="0%" stopColor="#3d0510" />
+                <stop offset="100%" stopColor="var(--color-imperial-700)" />
               </linearGradient>
               <linearGradient id="barra-apagada" x1="0" y1="1" x2="0" y2="0">
                 <stop offset="0%" stopColor="var(--color-ink-700)" />
                 <stop offset="100%" stopColor="var(--color-ink-600)" />
               </linearGradient>
+              <linearGradient id="barra-lado-apagada" x1="0" y1="1" x2="0" y2="0">
+                <stop offset="0%" stopColor="#0c0e12" />
+                <stop offset="100%" stopColor="var(--color-ink-800)" />
+              </linearGradient>
               <linearGradient id="barra-jade" x1="0" y1="1" x2="0" y2="0">
                 <stop offset="0%" stopColor="var(--color-jade-500)" />
                 <stop offset="100%" stopColor="var(--color-jade-400)" />
               </linearGradient>
+              <linearGradient id="barra-lado-jade" x1="0" y1="1" x2="0" y2="0">
+                <stop offset="0%" stopColor="#02392b" />
+                <stop offset="100%" stopColor="#047857" />
+              </linearGradient>
             </defs>
 
-            {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (
+            {/* El piso donde apoyan los prismas: una franja apenas más clara. */}
+            <polygon
+              points={puntos(
+                0,
+                base,
+                hondo,
+                base - subida,
+                width,
+                base - subida,
+                width - hondo,
+                base,
+              )}
+              style={{ fill: "rgb(255 255 255 / 0.03)" }}
+            />
+
+            {[0.25, 0.5, 0.75, 1].map((ratio) => (
               <line
                 key={ratio}
                 x1="0"
                 x2={width}
-                y1={height - ratio * height}
-                y2={height - ratio * height}
+                y1={base - ratio * alto}
+                y2={base - ratio * alto}
                 stroke={AXIS}
                 strokeWidth="1"
               />
             ))}
 
             {data.map((item, index) => {
-              const x = index * slot + (slot - barWidth) / 2;
+              const x = index * slot + (slot - grupo) / 2;
               const barHeight = Math.max(2, (item.value / max) * alto);
               const secondaryHeight =
                 item.secondary === undefined ? 0 : Math.max(0, (item.secondary / max) * alto);
@@ -166,24 +213,24 @@ export function BarChart({
                   {/* Zona sensible del ancho completo: el puntero no tiene que
                       acertarle a una barra fina para ver el dato. */}
                   <rect x={index * slot} y="0" width={slot} height={height} fill="transparent">
-                    <title>{item.label + ": " + formatValue(item.value)}</title>
+                    <title>
+                      {item.label +
+                        ": " +
+                        formatValue(item.value) +
+                        (item.secondary === undefined
+                          ? ""
+                          : " · pagado " + formatValue(item.secondary))}
+                    </title>
                   </rect>
 
-                  <path
-                    d={barra(x, barHeight)}
-                    className="chart-bar"
-                    style={{ animationDelay: index * 40 + "ms" }}
-                    fill={item.highlight ? "url(#barra-imperial)" : "url(#barra-apagada)"}
-                  />
+                  <g className="chart-bar" style={{ animationDelay: index * 40 + "ms" }}>
+                    {prisma(x, barHeight, item.highlight ? "imperial" : "apagada")}
+                  </g>
 
-                  {secondaryHeight > 0 ? (
-                    <path
-                      d={barra(x, secondaryHeight)}
-                      className="chart-bar"
-                      style={{ animationDelay: index * 40 + 120 + "ms" }}
-                      fill="url(#barra-jade)"
-                      opacity="0.9"
-                    />
+                  {conPagado && secondaryHeight > 0 ? (
+                    <g className="chart-bar" style={{ animationDelay: index * 40 + 120 + "ms" }}>
+                      {prisma(x + ancho + hueco, secondaryHeight, "jade")}
+                    </g>
                   ) : null}
                 </g>
               );

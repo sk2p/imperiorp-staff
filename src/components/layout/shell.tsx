@@ -172,6 +172,18 @@ export function AppShell({
         <div className="flex h-14 items-center border-b border-white/[0.07] px-4">
           <Brand />
         </div>
+        {/* El buscador (Ctrl+K). Vive en el layout; esto sólo lo llama. */}
+        <div className="px-3 pt-3">
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event("imperio:abrir-paleta"))}
+            className="buscador"
+          >
+            <Icon name="search" size={14} className="shrink-0" />
+            <span className="flex-1 text-left">Buscar…</span>
+            <kbd className="buscador-tecla">Ctrl K</kbd>
+          </button>
+        </div>
         {navigation()}
         {accountPanel}
       </aside>
@@ -180,15 +192,25 @@ export function AppShell({
         {/* Barra superior — móvil */}
         <header className="bg-ink-950/85 sticky top-0 z-20 flex h-14 items-center justify-between gap-3 border-b border-white/[0.07] px-4 backdrop-blur-xl lg:hidden">
           <Brand />
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(true)}
-            aria-label="Abrir menú"
-            aria-expanded={drawerOpen}
-            className="text-chalk-300 flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 transition active:scale-95"
-          >
-            <Icon name="menu" size={18} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new Event("imperio:abrir-paleta"))}
+              aria-label="Buscar"
+              className="text-chalk-300 flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 transition active:scale-95"
+            >
+              <Icon name="search" size={17} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(true)}
+              aria-label="Abrir menú"
+              aria-expanded={drawerOpen}
+              className="text-chalk-300 flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 transition active:scale-95"
+            >
+              <Icon name="menu" size={18} />
+            </button>
+          </div>
         </header>
 
         <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 pt-5 pb-24 sm:px-6 lg:pb-10">

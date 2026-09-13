@@ -480,6 +480,8 @@ async function applySegments(
 /* -------------------------------------------------------------------------- */
 
 export interface ActiveShift {
+  /** El fichaje en sí: lo usan los botones del recordatorio para no cerrar otro. */
+  readonly sessionId: string;
   readonly staffMemberId: string;
   readonly name: string;
   readonly rank: string;
@@ -493,6 +495,7 @@ export interface ActiveShift {
 export async function listActiveShifts(group?: StaffGroup): Promise<readonly ActiveShift[]> {
   const rows = await db
     .select({
+      sessionId: shiftSessions.id,
       staffMemberId: shiftSessions.staffMemberId,
       name: staffMembers.name,
       rank: staffMembers.rank,
@@ -513,6 +516,72 @@ export async function listActiveShifts(group?: StaffGroup): Promise<readonly Act
       seconds: Math.max(0, Math.round((ahora - row.startedAt.getTime()) / 1000)),
     }))
     .filter((row) => (group ? row.group === group : true));
+}
+
+export interface PaymentHistoryLine {
+  readonly startDate: string;
+  readonly endDate: string;
+  readonly totalMinutes: number;
+  /** Lo que le corresponde según la fila congelada del período. */
+  readonly amount: number;
+  /** Lo que se pagó de verdad, si se pagó. Puede diferir del calculado. */
+  readonly paidAmount: number | null;
+  readonly paidAt: Date | null;
+}
+
+/**
+ * Los últimos períodos cerrados de una persona y si ya se le pagaron, para
+ * `/mis-pagos`.
+ *
+ * El importe es el de la fila congelada del período —el mismo con el que se
+ * paga—, no uno recalculado con la tarifa de hoy: si alguien subió de rango, lo
+ * que cobra por la semana pasada no cambia. Un pago anulado no cuenta: para
+ * quien pregunta "¿me pagaron?", un pago anulado es un pago que no está.
+ *
+ * Las fechas salen formateadas desde la base. Una columna `date` que llega como
+ * objeto de fecha de JavaScript se interpreta a medianoche de algún huso, y en
+ * un servidor en UTC eso corre el día.
+ */
+export async function paymentHistory(
+  staffMemberId: string,
+  limite = 5,
+): Promise<readonly PaymentHistoryLine[]> {
+  const resultado = await db.execute<{
+    start_date: string;
+    end_date: string;
+    total_minutes: number | string;
+    calculated_amount: number | string;
+    paid_amount: number | string | null;
+    paid_at: Date | string | null;
+  }>(sql`
+    select
+      to_char("weeks"."start_date", 'YYYY-MM-DD') as start_date,
+      to_char("weeks"."end_date", 'YYYY-MM-DD') as end_date,
+      "weekly_staff_records"."total_minutes" as total_minutes,
+      "weekly_staff_records"."calculated_amount" as calculated_amount,
+      "payments"."amount" as paid_amount,
+      "payments"."paid_at" as paid_at
+    from weekly_staff_records
+    join weeks on "weeks"."id" = "weekly_staff_records"."week_id"
+    left join payments
+      on "payments"."week_id" = "weekly_staff_records"."week_id"
+      and "payments"."staff_member_id" = "weekly_staff_records"."staff_member_id"
+      and "payments"."voided_at" is null
+    where "weekly_staff_records"."staff_member_id" = ${staffMemberId}::uuid
+      and "weeks"."status" = 'closed'
+      and "weekly_staff_records"."total_minutes" > 0
+    order by "weeks"."start_date" desc
+    limit ${limite}
+  `);
+
+  return (resultado.rows ?? []).map((fila) => ({
+    startDate: fila.start_date,
+    endDate: fila.end_date,
+    totalMinutes: Number(fila.total_minutes),
+    amount: Number(fila.calculated_amount),
+    paidAmount: fila.paid_amount === null ? null : Number(fila.paid_amount),
+    paidAt: fila.paid_at === null ? null : new Date(fila.paid_at),
+  }));
 }
 
 export interface DailyLine {

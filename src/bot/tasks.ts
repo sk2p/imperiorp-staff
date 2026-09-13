@@ -1,21 +1,26 @@
-import type { Client, ContainerBuilder } from "discord.js";
+import { MessageFlags, type Client, type ContainerBuilder } from "discord.js";
 
 import { logger } from "@/lib/core/logger";
 import { localDate, previousLocalDate, startOfLocalDay } from "@/domain/clock";
 import { GROUP_DEFINITIONS, STAFF_GROUPS } from "@/domain/groups";
 import {
+  MAX_SHIFT_HOURS,
   autoCloseStaleShifts,
   dailyReport,
   findWeekByCode,
   frozenSettlement,
+  listActiveShifts,
   todayIsCovered,
+  type ActiveShift,
 } from "@/server/shifts";
 import { ensureCurrentPeriod, rotatePeriodIfDue } from "@/server/rotation";
 import { crearCopia, podarCopias } from "@/db/backup";
 import { COLOR, GROUP_COLOR, allGroupChannels, botConfig, groupChannels } from "./config";
+import { actualizarPresencia } from "./presencia";
 import {
   avisoCierrePeriodo,
   periodoAbiertoSolo,
+  recordatorioFichaje,
   registroFichaje,
   reporteDiario,
   sinPeriodoParaHoy,
@@ -46,13 +51,99 @@ let ultimoReportado: string | null = null;
 /** Qué día se avisó por última vez que hoy no entra en ningún período. */
 let ultimoAvisoSinPeriodo: string | null = null;
 
+/* -------------------------------------------------------------------------- */
+/* Recordatorio de fichajes largos                                            */
+/* -------------------------------------------------------------------------- */
+
+/** A cuántas horas de fichaje abierto se le escribe a la persona. */
+const AVISOS_HORAS = [5, 10] as const;
+
+/**
+ * Cuántos recordatorios recibió ya cada fichaje abierto.
+ *
+ * En memoria y a propósito. Guardarlo en la base pediría una columna nueva
+ * para un dato que vale unas horas. Lo que se pierde es que, si el bot se
+ * reinicia después de un aviso, esa persona puede recibirlo otra vez en la
+ * vuelta siguiente. Un privado repetido molesta menos que tocar el esquema.
+ */
+const recordados = new Map<string, number>();
+
+/**
+ * Le escribe por privado a quien lleva muchas horas fichado.
+ *
+ * El cierre automático de las dieciséis horas cuida la planilla, pero llega
+ * tarde: para entonces ya se contaron horas que nadie trabajó. Esto pregunta a
+ * las cinco y a las diez, cuando todavía se arregla con un toque.
+ */
+async function recordarFichajesLargos(client: Client): Promise<void> {
+  let abiertos: readonly ActiveShift[];
+  try {
+    abiertos = await listActiveShifts();
+  } catch (error) {
+    logger.warn("No se pudieron revisar los fichajes largos", { error });
+    return;
+  }
+
+  // Los que ya se cerraron no necesitan memoria.
+  const vigentes = new Set(abiertos.map((abierto) => abierto.sessionId));
+  for (const id of recordados.keys()) {
+    if (!vigentes.has(id)) recordados.delete(id);
+  }
+
+  for (const abierto of abiertos) {
+    if (!abierto.discordUserId) continue;
+
+    const horas = abierto.seconds / 3600;
+
+    // Ya lo corta el cierre automático: un aviso a esta altura llega tarde.
+    if (horas >= MAX_SHIFT_HOURS) continue;
+
+    // Cuántos umbrales pasó. Si el bot estuvo caído un rato no llegan dos
+    // avisos juntos, sólo el que corresponde ahora.
+    const alcanzados = AVISOS_HORAS.filter((umbral) => horas >= umbral).length;
+    if (alcanzados === 0 || (recordados.get(abierto.sessionId) ?? 0) >= alcanzados) continue;
+
+    recordados.set(abierto.sessionId, alcanzados);
+
+    try {
+      const usuario = await client.users.fetch(abierto.discordUserId);
+      await usuario.send({
+        components: [
+          recordatorioFichaje({
+            rank: abierto.rank,
+            name: abierto.name,
+            sessionId: abierto.sessionId,
+            startedAt: abierto.startedAt,
+            seconds: abierto.seconds,
+            cierreAutomaticoHoras: MAX_SHIFT_HOURS,
+          }),
+        ],
+        flags: MessageFlags.IsComponentsV2,
+      });
+
+      logger.info("Recordatorio de fichaje largo enviado", {
+        staff: abierto.name,
+        horas: Math.floor(horas),
+      });
+    } catch (error) {
+      // Privados cerrados, o la persona ya no está en el servidor.
+      logger.warn("No se pudo mandar el recordatorio de fichaje", { staff: abierto.name, error });
+    }
+  }
+}
+
 export function startScheduler(client: Client, publicar: Publicar): void {
   // Al arrancar se limpia lo que haya quedado colgado de la corrida anterior.
-  void revisarVencidos(publicar);
+  void revisarVencidos(publicar).then(() => actualizarPresencia(client));
   void revisarCobertura(publicar);
 
   setInterval(() => {
-    void revisarVencidos(publicar);
+    // En fila y no en paralelo: el recordatorio tiene que ver la lista DESPUÉS
+    // de los cierres automáticos, o le escribiría a alguien cuyo fichaje se
+    // acaba de cerrar solo.
+    void revisarVencidos(publicar)
+      .then(() => recordarFichajesLargos(client))
+      .then(() => actualizarPresencia(client));
     void revisarCobertura(publicar);
   }, REVISION_MS);
 

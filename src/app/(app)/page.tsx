@@ -1,7 +1,8 @@
 import Link from "next/link";
 
 import { Icon } from "@/components/layout/icons";
-import { BarChart, ProgressMeter } from "@/components/ui/charts";
+import { RingMeter } from "@/components/ui/anillo";
+import { BarChart } from "@/components/ui/charts";
 import {
   Badge,
   Callout,
@@ -13,7 +14,7 @@ import {
   Stat,
 } from "@/components/ui/primitives";
 import { formatMoney, formatMoneyCompact } from "@/domain/money";
-import { localDate } from "@/domain/clock";
+import { localDate, localTime } from "@/domain/clock";
 import { formatCalendarDateShort, formatPeriodLabel } from "@/domain/periods";
 import { CATEGORY_ACCENT, type StaffCategory } from "@/domain/ranks";
 import { formatMinutes } from "@/domain/time";
@@ -68,7 +69,13 @@ export default async function DashboardPage() {
   const withHours = lines.filter((line) => line.totalMinutes > 0).length;
   const topLines = [...lines].filter((line) => line.totalMinutes > 0).slice(0, 8);
 
-  const hour = new Date().getHours();
+  /**
+   * La hora de Argentina, no la del servidor.
+   *
+   * `getHours()` devuelve la hora del proceso, y en Vercel el proceso corre en
+   * UTC: a las diez de la mañana de acá, la pantalla saludaba "Buenas tardes".
+   */
+  const hour = Number(localTime().slice(0, 2));
   const greeting =
     hour < 6
       ? "Buenas noches"
@@ -269,23 +276,32 @@ export default async function DashboardPage() {
             <Card>
               <CardHeader title="Estado de la liquidación" />
               <div className="flex flex-col gap-4 p-4">
-                <ProgressMeter
-                  label="Liquidaciones pagadas"
-                  value={payments.paidCount}
-                  total={payments.paidCount + payments.pendingCount}
-                />
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div>
-                    <p className="overline">Pagado</p>
-                    <p className="tnum text-jade-400 mt-0.5 text-sm font-semibold">
-                      {formatMoneyCompact(payments.paidAmount)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="overline">Pendiente</p>
-                    <p className="tnum mt-0.5 text-sm font-semibold text-amber-400">
-                      {formatMoneyCompact(payments.pendingAmount)}
-                    </p>
+                <div className="flex items-center gap-5">
+                  <RingMeter
+                    label="Liquidaciones pagadas"
+                    caption="Pagado"
+                    value={payments.paidCount}
+                    total={payments.paidCount + payments.pendingCount}
+                  />
+                  <div className="flex min-w-0 flex-col gap-3 text-xs">
+                    <div>
+                      <p className="overline">Pagado</p>
+                      <p className="tnum text-jade-400 mt-0.5 text-sm font-semibold">
+                        {formatMoneyCompact(payments.paidAmount)}
+                      </p>
+                      <p className="text-chalk-600 text-[0.6875rem]">
+                        {payments.paidCount} liquidación(es)
+                      </p>
+                    </div>
+                    <div>
+                      <p className="overline">Pendiente</p>
+                      <p className="tnum mt-0.5 text-sm font-semibold text-amber-400">
+                        {formatMoneyCompact(payments.pendingAmount)}
+                      </p>
+                      <p className="text-chalk-600 text-[0.6875rem]">
+                        {payments.pendingCount} liquidación(es)
+                      </p>
+                    </div>
                   </div>
                 </div>
                 {week?.status === "open" ? (

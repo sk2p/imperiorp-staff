@@ -33,7 +33,7 @@ import type {
   VoidPaymentInput,
 } from "@/validation/payments";
 import { appendAuditLog } from "./audit";
-import { notifyPayment } from "./discord-notify";
+import { nuevosAvisos } from "./avisos-de-pago";
 /**
  * IMPERIO RP — Pagos de liquidaciones.
  *
@@ -319,7 +319,13 @@ export async function createPayment(
   /** Sólo el tablero lo usa: ver `loadSettlementForPayment`. */
   allowOpenPeriod = false,
 ): Promise<Payment> {
-  return withSerializableTransaction(async (tx) => {
+  const avisos = nuevosAvisos();
+
+  const pago = await withSerializableTransaction(async (tx) => {
+    // La transacción serializable se reintenta entera ante un conflicto: lo
+    // anotado por un intento que se deshizo no se tiene que avisar.
+    avisos.vaciar();
+
     // Reintento seguro: si la misma clave ya se usó, se devuelve aquel pago en
     // vez de crear uno nuevo. Un doble click o un reintento de red no duplican.
     const [existingByKey] = await tx
@@ -429,23 +435,36 @@ export async function createPayment(
     });
 
     /**
-     * El aviso a Discord se dispara y no se espera.
+     * Los avisos a Discord se anotan acá, donde están todos los datos a mano,
+     * pero salen recién cuando la transacción confirmó.
      *
-     * Va dentro de la transacción sólo porque acá están todos los datos a mano;
-     * no la retiene: `notifyPayment` no lanza nunca y se encarga sola de sus
-     * errores. Un problema de Discord no puede voltear un pago ya registrado.
+     * Antes salían desde adentro. Si algo fallaba después —o la transacción
+     * serializable se reintentaba por un conflicto—, el canal anunciaba un pago
+     * que no existía, o lo anunciaba dos veces.
      */
-    void notifyPayment({
-      staffName: memberName,
-      rank: record.rankSnapshot,
-      amount: created.amount,
-      minutes: record.totalMinutes,
-      period: formatPeriodLabel(week.startDate, week.endDate),
-      actor: actor.username,
-    });
+    const [ficha] = await tx
+      .select({ discordUserId: staffMembers.discordUserId })
+      .from(staffMembers)
+      .where(eq(staffMembers.id, input.staffMemberId))
+      .limit(1);
+
+    avisos.anotar(
+      {
+        staffName: memberName,
+        rank: record.rankSnapshot,
+        amount: created.amount,
+        minutes: record.totalMinutes,
+        period: formatPeriodLabel(week.startDate, week.endDate),
+        actor: actor.username,
+      },
+      ficha?.discordUserId ?? null,
+    );
 
     return created;
   });
+
+  avisos.enviar();
+  return pago;
 }
 /**
  * Paga varias liquidaciones pendientes de un mismo período.
@@ -457,7 +476,12 @@ export async function createBulkPayments(
   input: BulkPaymentInput,
   actor: ActorContext,
 ): Promise<{ created: number; skipped: number; totalAmount: number }> {
-  return withSerializableTransaction(async (tx) => {
+  const avisos = nuevosAvisos();
+
+  const resultado = await withSerializableTransaction(async (tx) => {
+    // Ver `createPayment`: un reintento no arrastra avisos del intento anterior.
+    avisos.vaciar();
+
     const [week] = await tx
       .select()
       .from(weeks)
@@ -537,8 +561,41 @@ export async function createBulkPayments(
       },
       metadata: { weekId: input.weekId, omitidos: skipped },
     });
+
+    // Un privado a cada persona que cobró en este lote. Sólo a las que de
+    // verdad se insertaron: las que otro pagó en paralelo ya recibieron el suyo.
+    const cobraron = new Set(inserted.map((payment) => payment.staffMemberId));
+    const vinculos =
+      cobraron.size === 0
+        ? []
+        : await tx
+            .select({ id: staffMembers.id, discordUserId: staffMembers.discordUserId })
+            .from(staffMembers)
+            .where(sql`${staffMembers.id} in ${[...cobraron]}`);
+    const discordDe = new Map(vinculos.map((vinculo) => [vinculo.id, vinculo.discordUserId]));
+    const periodo = formatPeriodLabel(week.startDate, week.endDate);
+
+    for (const record of payable) {
+      if (!cobraron.has(record.staffMemberId)) continue;
+      avisos.anotar(
+        {
+          staffName: record.staffNameSnapshot,
+          rank: record.rankSnapshot,
+          amount: record.calculatedAmount,
+          minutes: record.totalMinutes,
+          period: periodo,
+          actor: actor.username,
+        },
+        discordDe.get(record.staffMemberId) ?? null,
+        { alCanal: false },
+      );
+    }
+
     return { created: inserted.length, skipped, totalAmount };
   });
+
+  avisos.enviar();
+  return resultado;
 }
 export async function updatePayment(
   input: UpdatePaymentInput,
@@ -583,13 +640,17 @@ export async function updatePayment(
  * sin borrar el rastro del error.
  */
 export async function voidPayment(input: VoidPaymentInput, actor: ActorContext): Promise<Payment> {
-  return withTransaction(async (tx) => {
+  const avisos = nuevosAvisos();
+
+  const anulado = await withTransaction(async (tx) => {
+    avisos.vaciar();
+
     const existing = await lockPayment(tx, input.id);
     if (existing.voidedAt) {
       throw businessRule("El pago ya está anulado.");
     }
     const [member] = await tx
-      .select({ name: staffMembers.name })
+      .select({ name: staffMembers.name, discordUserId: staffMembers.discordUserId })
       .from(staffMembers)
       .where(eq(staffMembers.id, existing.staffMemberId))
       .limit(1);
@@ -629,19 +690,26 @@ export async function voidPayment(input: VoidPaymentInput, actor: ActorContext):
       .where(eq(weeks.id, existing.weekId))
       .limit(1);
 
-    void notifyPayment({
-      staffName: member?.name ?? "un miembro",
-      rank: "—",
-      amount: existing.amount,
-      minutes: 0,
-      period: semana ? formatPeriodLabel(semana.startDate, semana.endDate) : "—",
-      actor: actor.username,
-      voided: true,
-      reason: input.reason,
-    });
+    // Al canal y a la persona: si le avisamos que cobró, también que se anuló.
+    avisos.anotar(
+      {
+        staffName: member?.name ?? "un miembro",
+        rank: "—",
+        amount: existing.amount,
+        minutes: 0,
+        period: semana ? formatPeriodLabel(semana.startDate, semana.endDate) : "—",
+        actor: actor.username,
+        voided: true,
+        reason: input.reason,
+      },
+      member?.discordUserId ?? null,
+    );
 
     return voided;
   });
+
+  avisos.enviar();
+  return anulado;
 }
 async function lockPayment(tx: Transaction, id: string): Promise<Payment> {
   const [payment] = await tx

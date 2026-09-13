@@ -1773,6 +1773,257 @@ svg > .chart-col:hover {
   stroke-width: 2.5;
 }
 
+/* Anillo de avance con volumen: el canto en sombra por debajo y un brillo
+   sobre el relleno. Llena una sola vez, al aparecer. Anima `stroke-dashoffset`
+   y no `transform`, así que no toca a nada fijo ni pegajoso de alrededor. */
+.anillo {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.anillo-lienzo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 12px 18px rgb(0 0 0 / 0.45));
+}
+
+.anillo-avance {
+  filter: drop-shadow(0 0 5px rgb(52 211 153 / 0.4));
+  animation: anillo-llena 1200ms cubic-bezier(0.16, 1, 0.3, 1) 150ms both;
+}
+
+.anillo-centro {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+@keyframes anillo-llena {
+  from {
+    stroke-dashoffset: var(--anillo-vuelta);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anillo-avance {
+    animation: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Buscador (Ctrl+K)
+   -------------------------------------------------------------------------- */
+
+/* Entra cayendo un poco hacia adelante, como una placa que se inclina hacia
+   quien la mira. La transformación va en el propio diálogo, que vive en la
+   capa superior del navegador: no hay nada fijo ni pegajoso adentro que se
+   pueda romper. */
+.paleta {
+  margin: 12vh auto auto;
+  width: min(640px, calc(100vw - 24px));
+  max-height: 72dvh;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-chalk-50);
+  overflow: visible;
+  opacity: 1;
+  transform: perspective(900px) rotateX(0deg) translateY(0) scale(1);
+  transition:
+    opacity 180ms ease,
+    transform 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@starting-style {
+  .paleta[open] {
+    opacity: 0;
+    transform: perspective(900px) rotateX(14deg) translateY(-16px) scale(0.97);
+  }
+}
+
+.paleta::backdrop {
+  background: rgb(0 0 0 / 0.6);
+  backdrop-filter: blur(6px);
+}
+
+.paleta-caja {
+  display: flex;
+  flex-direction: column;
+  max-height: 72dvh;
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid var(--line-strong);
+  background: linear-gradient(180deg, rgb(21 24 29 / 0.97), rgb(11 13 16 / 0.98));
+  box-shadow:
+    0 30px 80px -20px rgb(0 0 0 / 0.9),
+    0 0 0 1px rgb(229 22 44 / 0.06),
+    inset 0 1px 0 rgb(255 255 255 / 0.06);
+}
+
+.paleta-campo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.paleta-campo input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--color-chalk-50);
+  font-size: 15px;
+}
+
+.paleta-campo input::placeholder {
+  color: var(--color-chalk-600);
+}
+
+.paleta-lista {
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.paleta-grupo {
+  padding: 10px 10px 4px;
+  color: var(--color-chalk-600);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.paleta-opcion {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: var(--color-chalk-200);
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+.paleta-opcion[data-activo="true"] {
+  color: #fff;
+  background: linear-gradient(90deg, rgb(229 22 44 / 0.16), rgb(229 22 44 / 0.03));
+  box-shadow: inset 2px 0 0 var(--color-imperial-500);
+}
+
+.paleta-icono {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgb(255 255 255 / 0.04);
+  color: var(--color-chalk-400);
+  transition:
+    color 120ms ease,
+    border-color 120ms ease;
+}
+
+.paleta-opcion[data-activo="true"] .paleta-icono {
+  color: var(--color-imperial-400);
+  border-color: rgb(229 22 44 / 0.35);
+}
+
+.paleta-detalle {
+  padding: 1px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--line-strong);
+  color: var(--color-chalk-400);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.paleta-enter {
+  color: var(--color-chalk-500);
+  font-size: 12px;
+}
+
+.paleta-vacia {
+  padding: 22px;
+  color: var(--color-chalk-500);
+  font-size: 13px;
+  text-align: center;
+}
+
+.paleta-pie {
+  display: flex;
+  gap: 16px;
+  padding: 9px 14px;
+  border-top: 1px solid var(--line);
+  color: var(--color-chalk-600);
+  font-size: 11px;
+}
+
+.paleta kbd,
+.buscador-tecla {
+  margin-right: 3px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  border: 1px solid var(--line-strong);
+  background: rgb(255 255 255 / 0.04);
+  color: var(--color-chalk-400);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* El disparador de la barra lateral: parece un campo, pero es un botón. */
+.buscador {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgb(255 255 255 / 0.025);
+  color: var(--color-chalk-500);
+  font-size: 12.5px;
+  transition:
+    border-color 150ms ease,
+    color 150ms ease,
+    background-color 150ms ease;
+}
+
+.buscador:hover {
+  border-color: var(--line-strong);
+  background: rgb(255 255 255 / 0.04);
+  color: var(--color-chalk-300);
+}
+
+@media (max-width: 640px) {
+  .paleta {
+    margin-top: 10px;
+  }
+  .paleta-pie {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .paleta {
+    transition: none;
+  }
+}
+
 /* La canaleta por donde corre una barra de progreso: hundida, no plana. */
 .pista {
   background: rgb(0 0 0 / 0.42);

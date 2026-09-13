@@ -685,6 +685,149 @@ export function sinPeriodoParaHoy(
 /* Mensajes sueltos                                                           */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * El privado que llega cuando un fichaje lleva muchas horas abierto.
+ *
+ * El cierre automático de las dieciséis horas protege a la planilla, pero
+ * llega tarde para la persona: para entonces ya se le contaron horas que no
+ * trabajó y el registro quedó marcado para revisar. Esto pregunta antes,
+ * cuando todavía se arregla con un toque.
+ */
+export function recordatorioFichaje(input: {
+  readonly rank: string;
+  readonly name: string;
+  readonly sessionId: string;
+  readonly startedAt: Date;
+  readonly seconds: number;
+  readonly cierreAutomaticoHoras: number;
+}) {
+  return new ContainerBuilder()
+    .setAccentColor(COLOR.aviso)
+    .addTextDisplayComponents(
+      texto(
+        "### " +
+          emoji("RELOJ") +
+          " ¿Seguís en servicio?\n" +
+          etiqueta(input.rank, input.name) +
+          ", tu fichaje está abierto hace **" +
+          formatDuration(input.seconds) +
+          "**, desde el " +
+          localDateTime(input.startedAt) +
+          ".\n\n" +
+          "Si ya habías terminado, cerralo ahora y pedile a un administrador que corrija " +
+          "la hora de salida: el cierre cuenta hasta este momento.",
+      ),
+    )
+    .addSeparatorComponents(separador())
+    .addTextDisplayComponents(
+      texto(
+        "-# Si nadie lo cierra, el sistema lo corta solo a las " +
+          input.cierreAutomaticoHoras +
+          " horas y queda marcado para revisar.",
+      ),
+    )
+    .addActionRowComponents(
+      fila(
+        new ButtonBuilder()
+          .setCustomId("fichaje:sigo:" + input.sessionId)
+          .setLabel("Sigo en servicio")
+          .setEmoji(emojiBoton("ENTRADA"))
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId("fichaje:cerraraviso:" + input.sessionId)
+          .setLabel("Cerrar fichaje")
+          .setEmoji(emojiBoton("SALIDA"))
+          .setStyle(ButtonStyle.Danger),
+      ),
+    );
+}
+
+/**
+ * `/mis-pagos`: los últimos períodos cerrados y si ya se cobraron.
+ *
+ * Arriba cada período con su estado, abajo la cuenta que importa: cuánto queda
+ * por cobrar. Es la respuesta a "¿me pagaron?", sin tener que preguntarle a
+ * nadie.
+ */
+export function historialPagos(input: {
+  readonly rank: string;
+  readonly name: string;
+  readonly group: StaffGroup;
+  readonly lineas: readonly {
+    readonly startDate: string;
+    readonly endDate: string;
+    readonly totalMinutes: number;
+    readonly amount: number;
+    readonly paidAmount: number | null;
+    readonly paidAt: Date | null;
+  }[];
+}) {
+  const titulo = "### " + emoji("PAGO") + " Tus pagos\n" + etiqueta(input.rank, input.name);
+
+  if (input.lineas.length === 0) {
+    return new ContainerBuilder()
+      .setAccentColor(GROUP_COLOR[input.group])
+      .addTextDisplayComponents(
+        texto(
+          titulo +
+            "\n\nTodavía no tenés horas en ningún período cerrado. Cuando cierre uno con horas " +
+            "tuyas, lo vas a ver acá.",
+        ),
+      );
+  }
+
+  /** "2026-09-05" → "05/09": el año sobra en una lista de semanas seguidas. */
+  const corta = (iso: string): string => iso.slice(8, 10) + "/" + iso.slice(5, 7);
+
+  const renglones = input.lineas
+    .map((linea) => {
+      const importe =
+        linea.paidAmount !== null && linea.paidAmount !== linea.amount
+          ? formatMoney(linea.paidAmount) + " (calculado " + formatMoney(linea.amount) + ")"
+          : formatMoney(linea.amount);
+
+      const estado =
+        linea.paidAt === null
+          ? emoji("RELOJ") + " **Pendiente**"
+          : emoji("EXITO") + " Pagado el " + (localDateTime(linea.paidAt).split(" ")[0] ?? "");
+
+      return (
+        "`" +
+        corta(linea.startDate) +
+        " → " +
+        corta(linea.endDate) +
+        "` · " +
+        formatMinutes(linea.totalMinutes) +
+        " · **" +
+        importe +
+        "**\n" +
+        estado
+      );
+    })
+    .join("\n\n");
+
+  const pendientes = input.lineas.filter((linea) => linea.paidAt === null);
+  const porCobrar = pendientes.reduce((suma, linea) => suma + linea.amount, 0);
+
+  return new ContainerBuilder()
+    .setAccentColor(pendientes.length > 0 ? COLOR.aviso : COLOR.pago)
+    .addTextDisplayComponents(texto(titulo + "\n\n" + renglones))
+    .addSeparatorComponents(separador())
+    .addTextDisplayComponents(
+      texto(
+        pendientes.length === 0
+          ? "-# " + emoji("EXITO") + " Estás al día: todos estos períodos están pagados."
+          : "-# " +
+              emoji("DINERO") +
+              " Por cobrar: **" +
+              formatMoney(porCobrar) +
+              "** de " +
+              pendientes.length +
+              (pendientes.length === 1 ? " período." : " períodos."),
+      ),
+    );
+}
+
 export function aviso(titulo: string, cuerpo: string, color: number = COLOR.neutro) {
   return new ContainerBuilder()
     .setAccentColor(color)
