@@ -1,11 +1,10 @@
-import { after } from "next/server";
-
 import {
   notifyPayment,
   notifyPaymentsPrivately,
   type PaymentNotice,
   type PrivatePaymentNotice,
 } from "./discord-notify";
+import { enSegundoPlano } from "./segundo-plano";
 
 /**
  * IMPERIO RP — Avisos de pago que esperan a que el pago exista.
@@ -26,9 +25,8 @@ import {
  *   });
  *   avisos.enviar();                         // sólo se llega acá si confirmó
  *
- * Salen con `after`: la respuesta al navegador no espera a Discord, y la
- * función tampoco se corta antes de mandarlos, que es lo que le puede pasar en
- * Vercel a una promesa suelta.
+ * Salen en segundo plano: la respuesta al navegador no espera a Discord. Ver
+ * `segundo-plano.ts`.
  *
  * No va dentro de `discord-notify.ts` porque ese archivo también lo usa el bot,
  * y el bot no tiene Next.
@@ -68,16 +66,4 @@ export function nuevosAvisos() {
       });
     },
   };
-}
-
-/**
- * `after` sólo funciona dentro de un pedido. Fuera de uno —un script, un
- * test— lanza, y ahí alcanza con dispararlo suelto.
- */
-function enSegundoPlano(tarea: () => Promise<void>): void {
-  try {
-    after(tarea);
-  } catch {
-    void tarea();
-  }
 }

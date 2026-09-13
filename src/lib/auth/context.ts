@@ -7,6 +7,7 @@ import { db } from "@/db";
 import { staffMembers, type Session, type User } from "@/db/schema";
 import { forbidden, unauthenticated } from "@/lib/core/errors";
 import { logger, newTraceId } from "@/lib/core/logger";
+import { lugarDeVercel } from "@/lib/core/lugar";
 import {
   effectivePermissions,
   hasFullAccess,
@@ -81,6 +82,8 @@ export interface AuthContext {
 export async function requestMetadata(): Promise<{
   ip: string | undefined;
   userAgent: string | undefined;
+  /** Ciudad y país aproximados de la IP, si el hosting los informa. */
+  lugar: string | undefined;
 }> {
   try {
     const headerList = await headers();
@@ -94,9 +97,10 @@ export async function requestMetadata(): Promise<{
     return {
       ip: ip?.slice(0, 45),
       userAgent: headerList.get("user-agent")?.slice(0, 512) ?? undefined,
+      lugar: lugarDeVercel((nombre) => headerList.get(nombre)),
     };
   } catch {
-    return { ip: undefined, userAgent: undefined };
+    return { ip: undefined, userAgent: undefined, lugar: undefined };
   }
 }
 

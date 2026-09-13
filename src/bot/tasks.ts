@@ -15,16 +15,27 @@ import {
 } from "@/server/shifts";
 import { ensureCurrentPeriod, rotatePeriodIfDue } from "@/server/rotation";
 import { crearCopia, podarCopias } from "@/db/backup";
-import { COLOR, GROUP_COLOR, allGroupChannels, botConfig, groupChannels } from "./config";
+import { discordDeFundadores } from "@/server/cuentas-discord";
+import {
+  COLOR,
+  GROUP_COLOR,
+  allGroupChannels,
+  botConfig,
+  groupChannels,
+  urlPaginaVigilada,
+} from "./config";
 import { actualizarPresencia } from "./presencia";
 import {
   avisoCierrePeriodo,
+  avisoPaginaCaida,
+  avisoPaginaVolvio,
   periodoAbiertoSolo,
   recordatorioFichaje,
   registroFichaje,
   reporteDiario,
   sinPeriodoParaHoy,
 } from "./ui";
+import { ESTADO_VIGIA_INICIAL, consultarPagina, evaluarChequeo } from "./vigia";
 
 /**
  * IMPERIO RP — Las dos tareas que corren solas.
@@ -132,6 +143,140 @@ async function recordarFichajesLargos(client: Client): Promise<void> {
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/* Vigilancia de la página                                                    */
+/* -------------------------------------------------------------------------- */
+
+/** Cada cuánto se mira la página. La base, una vuelta sí y una no. */
+const VIGIA_MS = 5 * 60 * 1000;
+
+/** Tras un fallo suelto, cuánto se espera para confirmarlo antes de avisar. */
+const VIGIA_REINTENTO_MS = 60 * 1000;
+
+/** Cada cuánto se vuelve a leer quiénes son los fundadores. */
+const FUNDADORES_MS = 60 * 60 * 1000;
+
+let estadoVigia = ESTADO_VIGIA_INICIAL;
+
+/**
+ * A quién avisar, guardado en memoria.
+ *
+ * Se lee de la base, y justo cuando hay que avisar la base puede estar caída.
+ * Por eso se lee mientras anda y se guarda: si lo que se cae es la base, el
+ * aviso sale igual, con la lista de la última vez.
+ */
+let fundadores: readonly string[] = [];
+let fundadoresLeidosEn = 0;
+
+async function refrescarFundadores(): Promise<void> {
+  if (fundadoresLeidosEn > 0 && Date.now() - fundadoresLeidosEn < FUNDADORES_MS) return;
+
+  try {
+    fundadores = await discordDeFundadores();
+    fundadoresLeidosEn = Date.now();
+
+    if (fundadores.length === 0) {
+      logger.warn(
+        "Ningún fundador tiene su Discord vinculado a su ficha: si la página se cae, no hay a quién avisar",
+      );
+    }
+  } catch (error) {
+    logger.warn("No se pudo leer a quién avisar si la página se cae", { error });
+  }
+}
+
+async function avisarFundadores(client: Client, contenedor: ContainerBuilder): Promise<void> {
+  if (fundadores.length === 0) {
+    logger.warn("La vigilancia tiene algo que avisar, pero no hay a quién");
+    return;
+  }
+
+  for (const id of fundadores) {
+    try {
+      const usuario = await client.users.fetch(id);
+      await usuario.send({ components: [contenedor], flags: MessageFlags.IsComponentsV2 });
+    } catch (error) {
+      // Privados cerrados: queda en el log, que también es donde se ve la caída.
+      logger.warn("No se pudo mandar el aviso de la vigilancia", { error });
+    }
+  }
+}
+
+async function chequearPagina(client: Client, base: string, profundo: boolean): Promise<void> {
+  const chequeo = await consultarPagina(base, {
+    profundo,
+    // Con el secreto, la página dice qué parte falla; sin él, sólo que falla.
+    secreto: process.env.CRON_SECRET?.trim() || undefined,
+  });
+
+  const { estado, decision } = evaluarChequeo(estadoVigia, chequeo, {
+    ahora: new Date(),
+    profundo,
+  });
+  estadoVigia = estado;
+
+  // Con la base respondiendo es el momento de leer a quién avisar.
+  if (chequeo.ok && profundo) await refrescarFundadores();
+
+  if (decision.tipo === "reintentar") {
+    logger.warn("La página no respondió bien; se vuelve a probar en un minuto", {
+      motivo: chequeo.ok ? null : chequeo.motivo,
+    });
+    setTimeout(() => void chequearPagina(client, base, profundo), VIGIA_REINTENTO_MS);
+    return;
+  }
+
+  if (decision.tipo === "avisar-caida") {
+    logger.error("La página no está andando", { motivo: decision.motivo });
+    await avisarFundadores(
+      client,
+      avisoPaginaCaida({ url: base, motivo: decision.motivo, desde: decision.desde }),
+    );
+    return;
+  }
+
+  if (decision.tipo === "avisar-vuelta") {
+    logger.info("La página volvió", { minutos: Math.round(decision.duracionMs / 60_000) });
+    await avisarFundadores(
+      client,
+      avisoPaginaVolvio({ url: base, desde: decision.desde, duracionMs: decision.duracionMs }),
+    );
+  }
+}
+
+/**
+ * Arranca la vigilancia. Las razones de cada cosa están en `vigia.ts`.
+ *
+ * Arranca en el mismo instante que la revisión de fichajes y con el doble de
+ * frecuencia, así que las vueltas que miran la base caen justo cuando la
+ * revisión ya la despertó. Con una caída avisada, en cambio, se mira completo
+ * en cada vuelta: ahí importa enterarse rápido de que volvió.
+ */
+function vigilarPagina(client: Client): void {
+  const base = urlPaginaVigilada();
+  if (!base) {
+    logger.info("Vigilancia de la página apagada (URL_PAGINA=no)");
+    return;
+  }
+
+  // La lista se lee ya, por si lo primero que pasa es que la página no anda.
+  void refrescarFundadores();
+
+  let vuelta = 0;
+  const mirar = () => {
+    const profundo = estadoVigia.avisada || vuelta % 2 === 0;
+    vuelta += 1;
+    void chequearPagina(client, base, profundo).catch((error: unknown) =>
+      logger.error("Falló la vigilancia de la página", { error }),
+    );
+  };
+
+  mirar();
+  setInterval(mirar, VIGIA_MS);
+
+  logger.info("Vigilancia de la página activa", { url: base, cadaMinutos: VIGIA_MS / 60_000 });
+}
+
 export function startScheduler(client: Client, publicar: Publicar): void {
   // Al arrancar se limpia lo que haya quedado colgado de la corrida anterior.
   void revisarVencidos(publicar).then(() => actualizarPresencia(client));
@@ -146,6 +291,9 @@ export function startScheduler(client: Client, publicar: Publicar): void {
       .then(() => actualizarPresencia(client));
     void revisarCobertura(publicar);
   }, REVISION_MS);
+
+  // Justo después de la revisión: sus vueltas con base coinciden con las de ella.
+  vigilarPagina(client);
 
   programarMedianoche(publicar);
 

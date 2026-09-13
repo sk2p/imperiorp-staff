@@ -41,6 +41,7 @@ import {
   periodOverview,
   periodRanking,
   periodSummary,
+  rachasYRecords,
   startShift,
   unlinkDiscordAccount,
   type ShiftMember,
@@ -797,7 +798,17 @@ async function manejarComando(interaction: ChatInputCommandInteraction): Promise
     const member = await requerirFicha(interaction);
     if (!member) return;
 
-    const datos = await periodRanking();
+    /**
+     * Las rachas van aparte y con red: si esa consulta falla, la tabla sale
+     * igual. Nadie se queda sin ver las horas por un adorno.
+     */
+    const [datos, rachas] = await Promise.all([
+      periodRanking(),
+      rachasYRecords().catch((error: unknown) => {
+        logger.warn("No se pudieron calcular las rachas para /top", { error });
+        return null;
+      }),
+    ]);
 
     if (!datos) {
       await responder(
@@ -807,7 +818,10 @@ async function manejarComando(interaction: ChatInputCommandInteraction): Promise
       return;
     }
 
-    await responder(interaction, tablaHoras(datos));
+    await responder(
+      interaction,
+      tablaHoras({ ...datos, rachas, propio: rachas?.porMiembro.get(member.id) ?? null }),
+    );
     return;
   }
 

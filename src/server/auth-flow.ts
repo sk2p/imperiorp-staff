@@ -18,6 +18,7 @@ import {
 import { rateLimited, unauthenticated } from "@/lib/core/errors";
 import { getEnv } from "@/lib/core/env";
 import { logger } from "@/lib/core/logger";
+import { avisarNavegadorNuevo } from "./aviso-de-acceso";
 import { recordSecurityEvent } from "./security-events";
 /**
  * Flujo de acceso.
@@ -30,7 +31,8 @@ import { recordSecurityEvent } from "./security-events";
  *  · La sesión se crea recién después de validar, con un token nuevo: no hay
  *    forma de fijar una sesión de antemano.
  *
- * Probado contra una base real en `tests/seguridad-acceso.test.ts`.
+ * Probado contra una base real en `tests/seguridad-acceso.test.ts` y
+ * `tests/aviso-acceso.test.ts`.
  */
 const GENERIC_ERROR = "Usuario o contraseña incorrectos.";
 export interface LoginOutcome {
@@ -40,7 +42,7 @@ export interface LoginOutcome {
 }
 export async function performLogin(
   input: { username: string; password: string },
-  metadata: { ip: string; userAgent: string | undefined },
+  metadata: { ip: string; userAgent: string | undefined; lugar?: string | undefined },
 ): Promise<LoginOutcome> {
   const username = input.username.trim().toLowerCase();
   const limit = await checkLoginRateLimit(metadata.ip, username);
@@ -96,7 +98,9 @@ export async function performLogin(
    */
   const ahora = Date.now();
   const bloqueada = user.lockedUntil !== null && user.lockedUntil.getTime() > ahora;
-  if (bloqueada && !esMarcaValida(await leerMarcaDeDispositivo(), user)) {
+  // Decide dos cosas: si este navegador pasa un bloqueo, y si al entrar hay que avisar.
+  const navegadorConocido = esMarcaValida(await leerMarcaDeDispositivo(), user);
+  if (bloqueada && !navegadorConocido) {
     await fakeVerifyPassword();
     await recordSecurityEvent({
       type: "LOGIN_BLOCKED",
@@ -182,6 +186,25 @@ export async function performLogin(
   await setSessionCookie(rawToken);
   // Este navegador pasa a ser conocido: un bloqueo futuro no lo deja afuera.
   await recordarDispositivo(user);
+
+  /**
+   * Entró desde un navegador que esta cuenta no conocía: se le avisa al dueño
+   * por privado, con navegador, lugar e IP. Si fue él, lo ignora; si no, sabe
+   * que alguien tiene su contraseña y dónde cortar la sesión.
+   *
+   * Sale en segundo plano: el acceso no espera a Discord ni falla por él.
+   */
+  if (!navegadorConocido) {
+    avisarNavegadorNuevo({
+      userId: user.id,
+      username: user.username,
+      ip: metadata.ip,
+      userAgent: metadata.userAgent ?? null,
+      lugar: metadata.lugar ?? null,
+      cuando: new Date(ahora),
+    });
+  }
+
   await recordSecurityEvent({
     type: "LOGIN_SUCCESS",
     userId: user.id,
@@ -191,6 +214,7 @@ export async function performLogin(
     details: {
       role: user.role,
       hashActualizado: Boolean(rehash),
+      ...(navegadorConocido ? {} : { navegadorNuevo: true }),
       // Entró su dueño mientras alguien más tenía la cuenta bloqueada: vale mirarlo.
       ...(bloqueada ? { conCuentaBloqueada: true } : {}),
     },

@@ -12,6 +12,7 @@ import {
   splitByLocalDay,
 } from "@/domain/clock";
 import { groupForRank, type StaffGroup } from "@/domain/groups";
+import { resumirRachas } from "@/domain/rachas";
 import { rankTier } from "@/domain/ranks";
 import { systemActor } from "@/lib/auth/context";
 import { appendAuditLog } from "./audit";
@@ -884,6 +885,7 @@ export async function periodRanking(limite = 12): Promise<{
   readonly endDate: string;
   readonly total: number;
   readonly filas: readonly {
+    readonly staffMemberId: string;
     readonly name: string;
     readonly rank: string;
     readonly minutes: number;
@@ -894,6 +896,7 @@ export async function periodRanking(limite = 12): Promise<{
 
   const filas = await db
     .select({
+      staffMemberId: weeklyStaffRecords.staffMemberId,
       name: weeklyStaffRecords.staffNameSnapshot,
       rank: weeklyStaffRecords.rankSnapshot,
       minutes: weeklyStaffRecords.totalMinutes,
@@ -913,6 +916,173 @@ export async function periodRanking(limite = 12): Promise<{
     endDate: semana.endDate,
     total: totales?.total ?? 0,
     filas,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Rachas y récords                                                           */
+/* -------------------------------------------------------------------------- */
+
+export interface Destacado {
+  readonly name: string;
+  readonly rank: string;
+  readonly dias: number;
+}
+
+export interface RachasYRecords {
+  readonly porMiembro: ReadonlyMap<
+    string,
+    { readonly rachaActual: number; readonly mejorRacha: number; readonly mejorPeriodo: number }
+  >;
+  /** La racha viva más larga del staff. */
+  readonly rachaEnCurso: Destacado | null;
+  /** La racha más larga que hubo, viva o no. */
+  readonly mejorRacha: Destacado | null;
+  /** Las horas más altas en un período cerrado. */
+  readonly recordPeriodo: {
+    readonly name: string;
+    readonly rank: string;
+    readonly minutes: number;
+    readonly startDate: string;
+    readonly endDate: string;
+  } | null;
+}
+
+/**
+ * Rachas de días seguidos y récords de horas, para `/top`.
+ *
+ * Las rachas salen de la planilla (`hour_entries`) y no de los fichajes: un día
+ * cargado a mano también se trabajó, y es lo que se paga. Cuentan los días en
+ * estado normal, sin anular, con al menos un minuto, y hasta hoy: una carga
+ * adelantada para mañana no estira ninguna racha.
+ *
+ * Los récords de período salen sólo de los CERRADOS. Un período abierto todavía
+ * se está jugando, y compararse contra uno a medio cargar no dice nada.
+ *
+ * Los tramos de días seguidos los arma la base con un truco conocido: a cada
+ * fecha se le resta su número de orden, y dentro de un tramo sin huecos esa
+ * resta da siempre el mismo día. Así viaja una fila por tramo, no una por cada
+ * día trabajado de toda la historia.
+ *
+ * Las fechas vuelven como texto (`to_char`): el driver convierte un `date` en un
+ * `Date` a medianoche del huso del servidor, y ahí un día puede quedar corrido.
+ */
+export async function rachasYRecords(hoy: string = localDate()): Promise<RachasYRecords> {
+  const [tramos, mejores, records] = await Promise.all([
+    db.execute<{
+      staff_member_id: string;
+      name: string;
+      rank: string;
+      dias: number | string;
+      hasta: string;
+    }>(sql`
+      with dias as (
+        select distinct staff_member_id, work_date
+        from hour_entries
+        where status = 'normal'
+          and voided_at is null
+          and minutes >= 1
+          and work_date <= ${hoy}::date
+      ),
+      tramos as (
+        select
+          staff_member_id,
+          work_date,
+          work_date - (row_number() over (partition by staff_member_id order by work_date))::int as grupo
+        from dias
+      )
+      select
+        t.staff_member_id,
+        s.name,
+        s.rank,
+        count(*)::int as dias,
+        to_char(max(t.work_date), 'YYYY-MM-DD') as hasta
+      from tramos t
+      join staff_members s on s.id = t.staff_member_id and s.archived_at is null
+      group by t.staff_member_id, s.name, s.rank, t.grupo
+    `),
+    db.execute<{ staff_member_id: string; minutos: number | string }>(sql`
+      select r.staff_member_id, max(r.total_minutes)::int as minutos
+      from weekly_staff_records r
+      join weeks w on w.id = r.week_id
+      where w.status = 'closed'
+      group by r.staff_member_id
+    `),
+    db.execute<{
+      name: string;
+      rank: string;
+      minutes: number | string;
+      start_date: string;
+      end_date: string;
+    }>(sql`
+      select
+        r.staff_name_snapshot as name,
+        r.rank_snapshot as rank,
+        r.total_minutes::int as minutes,
+        to_char(w.start_date, 'YYYY-MM-DD') as start_date,
+        to_char(w.end_date, 'YYYY-MM-DD') as end_date
+      from weekly_staff_records r
+      join weeks w on w.id = r.week_id
+      where w.status = 'closed' and r.total_minutes > 0
+      order by r.total_minutes desc, w.start_date asc
+      limit 1
+    `),
+  ]);
+
+  const resumen = resumirRachas(
+    tramos.rows.map((fila) => ({
+      staffMemberId: fila.staff_member_id,
+      dias: Number(fila.dias),
+      hasta: fila.hasta,
+    })),
+    hoy,
+  );
+
+  const personas = new Map(
+    tramos.rows.map((fila) => [fila.staff_member_id, { name: fila.name, rank: fila.rank }]),
+  );
+  const mejorPeriodo = new Map(
+    mejores.rows.map((fila) => [fila.staff_member_id, Number(fila.minutos)]),
+  );
+
+  const porMiembro = new Map<
+    string,
+    { rachaActual: number; mejorRacha: number; mejorPeriodo: number }
+  >();
+  for (const id of new Set([...resumen.keys(), ...mejorPeriodo.keys()])) {
+    const racha = resumen.get(id);
+    porMiembro.set(id, {
+      rachaActual: racha?.actual ?? 0,
+      mejorRacha: racha?.mejor ?? 0,
+      mejorPeriodo: mejorPeriodo.get(id) ?? 0,
+    });
+  }
+
+  // Un día suelto no es racha. Con empate, por nombre, para que no baile.
+  const destacar = (clave: "actual" | "mejor"): Destacado | null => {
+    const candidatos = [...resumen].flatMap(([id, racha]) => {
+      const persona = personas.get(id);
+      return persona && racha[clave] >= 2 ? [{ ...persona, dias: racha[clave] }] : [];
+    });
+    candidatos.sort((a, b) => b.dias - a.dias || a.name.localeCompare(b.name, "es"));
+    return candidatos[0] ?? null;
+  };
+
+  const record = records.rows[0];
+
+  return {
+    porMiembro,
+    rachaEnCurso: destacar("actual"),
+    mejorRacha: destacar("mejor"),
+    recordPeriodo: record
+      ? {
+          name: record.name,
+          rank: record.rank,
+          minutes: Number(record.minutes),
+          startDate: record.start_date,
+          endDate: record.end_date,
+        }
+      : null,
   };
 }
 

@@ -144,6 +144,7 @@ export async function loginAction(
     await performLogin(parsed.data, {
       ip: metadata.ip ?? "desconocida",
       userAgent: metadata.userAgent,
+      lugar: metadata.lugar,
     });
   } catch (error) {
     /**

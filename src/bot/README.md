@@ -138,6 +138,14 @@ Para que ande, en **Vercel** tienen que estar `DISCORD_TOKEN` y `DISCORD_PAGOS`.
   anunciado es un límite que se puede aprovechar. Si hay que cambiarlo, está en
   `src/server/shifts.ts`.
 
+- **Vigilancia de la página**, cada cinco minutos. Si la página o la base dejan
+  de responder dos veces seguidas, les llega un privado a los fundadores que
+  tengan su Discord vinculado a la ficha, y otro cuando vuelve. La base se mira
+  cada diez minutos, junto con la revisión de fichajes, para no tenerla
+  despierta todo el día. `URL_PAGINA` cambia la dirección vigilada;
+  `URL_PAGINA=no` la apaga. Si el bot tiene `CRON_SECRET`, el aviso dice qué
+  parte falla.
+
 ## Reglas que hace cumplir
 
 - Un solo fichaje abierto por persona, garantizado por un índice único de la

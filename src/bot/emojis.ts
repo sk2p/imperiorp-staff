@@ -49,6 +49,11 @@ export const EMOJI_DEFAULTS = {
 
   /* Marca */
   IMPERIO: "🏛️",
+
+  /* Rachas, récords y alertas */
+  RACHA: "🔥",
+  RECORD: "🏆",
+  ALERTA: "🚨",
 } as const;
 
 export type EmojiKey = keyof typeof EMOJI_DEFAULTS;

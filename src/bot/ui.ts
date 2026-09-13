@@ -530,11 +530,54 @@ export function estadoPeriodo(datos: PeriodOverview) {
  * La barra de cada fila es proporcional al primero, no al total: contra el
  * total las barras quedarían todas pegadas a cero y no se compararía nada.
  */
+/** Desde cuántos días seguidos una racha se muestra. Un día suelto no es racha. */
+const RACHA_VISIBLE = 2;
+
+/** "2026-09-05" → "05/09": en una línea de récord el año sobra. */
+function fechaCorta(iso: string): string {
+  return iso.slice(8, 10) + "/" + iso.slice(5, 7);
+}
+
+interface DestacadoTabla {
+  readonly name: string;
+  readonly rank: string;
+  readonly dias: number;
+}
+
+interface RachasTabla {
+  readonly porMiembro: ReadonlyMap<
+    string,
+    { readonly rachaActual: number; readonly mejorRacha: number; readonly mejorPeriodo: number }
+  >;
+  readonly rachaEnCurso: DestacadoTabla | null;
+  readonly mejorRacha: DestacadoTabla | null;
+  readonly recordPeriodo: {
+    readonly name: string;
+    readonly rank: string;
+    readonly minutes: number;
+    readonly startDate: string;
+    readonly endDate: string;
+  } | null;
+}
+
 export function tablaHoras(datos: {
   readonly startDate: string;
   readonly endDate: string;
   readonly total: number;
-  readonly filas: readonly { name: string; rank: string; minutes: number }[];
+  readonly filas: readonly {
+    readonly staffMemberId?: string;
+    readonly name: string;
+    readonly rank: string;
+    readonly minutes: number;
+  }[];
+  /** Rachas y récords. Si esa consulta falló, la tabla sale igual, sin ellos. */
+  readonly rachas?: RachasTabla | null;
+  /** Lo de quien pidió la tabla, para la línea de abajo. */
+  readonly propio?: {
+    readonly rachaActual: number;
+    readonly mejorRacha: number;
+    readonly mejorPeriodo: number;
+  } | null;
 }) {
   const contenedor = new ContainerBuilder()
     .setAccentColor(COLOR.imperial)
@@ -563,6 +606,21 @@ export function tablaHoras(datos: {
 
   const lineas = datos.filas.map((fila, indice) => {
     const llenos = Math.max(1, Math.min(12, Math.round((fila.minutes / mayor) * 12)));
+    const suyo = fila.staffMemberId ? datos.rachas?.porMiembro.get(fila.staffMemberId) : undefined;
+
+    /**
+     * Las marcas van en la misma línea que las horas, chicas: la tabla sigue
+     * siendo de horas. Récord personal es superar su mejor período CERRADO, así
+     * que alguien sin ningún período cerrado todavía no tiene contra qué.
+     */
+    const marcas = [
+      suyo && suyo.rachaActual >= RACHA_VISIBLE
+        ? emoji("RACHA") + " " + suyo.rachaActual + " días seguidos"
+        : null,
+      suyo && suyo.mejorPeriodo > 0 && fila.minutes > suyo.mejorPeriodo
+        ? emoji("RECORD") + " récord personal"
+        : null,
+    ].filter((marca): marca is string => marca !== null);
 
     return (
       (puestos[indice] ?? "`" + String(indice + 1).padStart(2, " ") + "`") +
@@ -572,14 +630,156 @@ export function tablaHoras(datos: {
       "█".repeat(llenos) +
       "░".repeat(12 - llenos) +
       "` " +
-      formatMinutes(fila.minutes)
+      formatMinutes(fila.minutes) +
+      (marcas.length > 0 ? " · " + marcas.join(" · ") : "")
     );
   });
 
-  return contenedor
-    .addTextDisplayComponents(texto(lineas.join("\n")))
+  contenedor.addTextDisplayComponents(texto(lineas.join("\n"))).addSeparatorComponents(separador());
+
+  const destacados = seccionRachas(datos.rachas ?? null, datos.filas[0]);
+  if (destacados) {
+    contenedor.addTextDisplayComponents(texto(destacados)).addSeparatorComponents(separador());
+  }
+
+  const propio = datos.propio;
+  const lineaPropia = propio
+    ? "-# Vos: " +
+      (propio.rachaActual >= RACHA_VISIBLE
+        ? emoji("RACHA") + " racha de " + propio.rachaActual + " días"
+        : "sin racha en curso") +
+      " · mejor racha " +
+      propio.mejorRacha +
+      (propio.mejorRacha === 1 ? " día" : " días") +
+      (propio.mejorPeriodo > 0
+        ? " · mejor período `" + formatMinutes(propio.mejorPeriodo) + "`"
+        : "") +
+      "\n"
+    : "";
+
+  return contenedor.addTextDisplayComponents(
+    texto(lineaPropia + "-# Total del período: `" + formatMinutes(datos.total) + "`"),
+  );
+}
+
+/**
+ * Rachas y récords del servidor, abajo de la tabla.
+ *
+ * La mejor racha de la historia sólo se muestra si es otra que la que está en
+ * curso: con los mismos días, casi seguro es la misma racha contada dos veces.
+ */
+function seccionRachas(
+  rachas: RachasTabla | null,
+  lider: { readonly name: string; readonly rank: string; readonly minutes: number } | undefined,
+): string | null {
+  if (!rachas) return null;
+  const renglones: string[] = [];
+
+  if (rachas.rachaEnCurso) {
+    renglones.push(
+      emoji("RACHA") +
+        " **Racha en curso:** " +
+        etiqueta(rachas.rachaEnCurso.rank, rachas.rachaEnCurso.name) +
+        " · " +
+        rachas.rachaEnCurso.dias +
+        " días seguidos",
+    );
+  }
+
+  if (rachas.mejorRacha && rachas.mejorRacha.dias > (rachas.rachaEnCurso?.dias ?? 0)) {
+    renglones.push(
+      emoji("RACHA") +
+        " **Mejor racha de la historia:** " +
+        etiqueta(rachas.mejorRacha.rank, rachas.mejorRacha.name) +
+        " · " +
+        rachas.mejorRacha.dias +
+        " días",
+    );
+  }
+
+  if (rachas.recordPeriodo) {
+    const record = rachas.recordPeriodo;
+    renglones.push(
+      emoji("RECORD") +
+        " **Récord de un período:** " +
+        etiqueta(record.rank, record.name) +
+        " · `" +
+        formatMinutes(record.minutes) +
+        "` (" +
+        fechaCorta(record.startDate) +
+        " → " +
+        fechaCorta(record.endDate) +
+        ")",
+    );
+
+    if (lider && lider.minutes > record.minutes) {
+      renglones.push(
+        "-# " +
+          emoji("RECORD") +
+          " " +
+          etiqueta(lider.rank, lider.name) +
+          " ya lo está superando en este período.",
+      );
+    }
+  }
+
+  return renglones.length > 0 ? "**Rachas y récords**\n" + renglones.join("\n") : null;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Vigilancia de la página                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * El privado a los fundadores cuando la página deja de andar.
+ *
+ * Dice qué falla con las palabras del chequeo —no es lo mismo "no responde" que
+ * "la base no responde"—, y aclara qué deja de funcionar, porque es lo primero
+ * que va a preguntar el staff.
+ */
+export function avisoPaginaCaida(input: {
+  readonly url: string;
+  readonly motivo: string;
+  readonly desde: Date;
+}) {
+  return new ContainerBuilder()
+    .setAccentColor(COLOR.salida)
+    .addTextDisplayComponents(
+      texto("## " + emoji("ALERTA") + " La página no está andando\n" + input.motivo),
+    )
     .addSeparatorComponents(separador())
-    .addTextDisplayComponents(texto("-# Total del período: `" + formatMinutes(datos.total) + "`"));
+    .addTextDisplayComponents(
+      texto(
+        "Falla desde el **" +
+          localDateTime(input.desde) +
+          "**. Mientras siga así, el staff no puede usar la planilla ni registrar pagos. " +
+          "Si lo que falla es la base, el fichaje del bot tampoco anda.\n" +
+          "-# Te aviso de nuevo cuando vuelva. " +
+          input.url,
+      ),
+    );
+}
+
+/** El privado cuando vuelve, con cuánto estuvo caída. */
+export function avisoPaginaVolvio(input: {
+  readonly url: string;
+  readonly desde: Date;
+  readonly duracionMs: number;
+}) {
+  return new ContainerBuilder()
+    .setAccentColor(COLOR.entrada)
+    .addTextDisplayComponents(
+      texto(
+        "## " +
+          emoji("EXITO") +
+          " La página volvió\nEstuvo sin andar **" +
+          formatDuration(Math.round(input.duracionMs / 1000)) +
+          "**, desde el " +
+          localDateTime(input.desde) +
+          ".\n-# " +
+          input.url,
+      ),
+    );
 }
 
 /**

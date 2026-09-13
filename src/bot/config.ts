@@ -74,6 +74,23 @@ export function botConfig(): BotConfig {
   };
 }
 
+/** La página en producción. Es la que hay que vigilar salvo que se diga otra. */
+const PAGINA_PREDETERMINADA = "https://imperiorp-staff.vercel.app";
+
+/**
+ * Qué dirección vigila el bot, o `null` si la vigilancia está apagada.
+ *
+ * Tiene valor por defecto a propósito: una vigilancia que hay que acordarse de
+ * configurar es una vigilancia que no está. `URL_PAGINA` la cambia —si la página
+ * se muda de dominio— y `URL_PAGINA=no` la apaga, por ejemplo en un bot de
+ * prueba que no tiene por qué mandarle privados a nadie.
+ */
+export function urlPaginaVigilada(): string | null {
+  const valor = env("URL_PAGINA");
+  if (valor?.toLowerCase() === "no") return null;
+  return (valor ?? PAGINA_PREDETERMINADA).replace(/\/+$/, "");
+}
+
 /* -------------------------------------------------------------------------- */
 /* Colores                                                                    */
 /* -------------------------------------------------------------------------- */
