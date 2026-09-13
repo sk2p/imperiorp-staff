@@ -5,6 +5,7 @@ import {
   rankRates,
   staffMembers,
   staffRankHistory,
+  weeks,
   type StaffMember,
 } from "@/db/schema";
 import type { ActorContext } from "@/lib/auth/context";
@@ -16,6 +17,7 @@ import {
   type StaffGroup,
 } from "@/domain/groups";
 import { calculateEarnings } from "@/domain/payroll";
+import { eachDayOfPeriod } from "@/domain/periods";
 import {
   categoryForRank,
   compareRankChange,
@@ -528,6 +530,8 @@ async function lockStaffMember(tx: Transaction, id: string): Promise<StaffMember
  * que las dos pantallas no digan cosas distintas sobre la jerarquía.
  */
 export interface StaffBoardCard {
+  /** Minutos de cada día del período, en orden, para el pulso de la semana. */
+  readonly periodDays: readonly { readonly workDate: string; readonly minutes: number }[];
   readonly id: string;
   readonly name: string;
   readonly rank: string;
@@ -607,8 +611,51 @@ export async function getStaffBoard(
     .where(includeArchived ? undefined : isNull(staffMembers.archivedAt))
     .orderBy(asc(staffMembers.displayOrder), asc(staffMembers.name));
 
+  /**
+   * El reparto día por día, para el pulso de cada ficha.
+   *
+   * Es una consulta más y una sola: traer las entradas del período entero y
+   * repartirlas en memoria cuesta menos que pedir siete casillas por persona.
+   * Con cuarenta personas y siete días son a lo sumo doscientas ochenta filas.
+   */
+  const [semana] = weekId
+    ? await db
+        .select({ startDate: weeks.startDate, endDate: weeks.endDate })
+        .from(weeks)
+        .where(eq(weeks.id, weekId))
+        .limit(1)
+    : [];
+
+  const porDia = new Map<string, Map<string, number>>();
+
+  if (weekId && semana) {
+    const entradas = await db
+      .select({
+        staffMemberId: hourEntries.staffMemberId,
+        workDate: hourEntries.workDate,
+        minutes: hourEntries.minutes,
+      })
+      .from(hourEntries)
+      .where(
+        and(
+          eq(hourEntries.weekId, weekId),
+          eq(hourEntries.status, "normal"),
+          isNull(hourEntries.voidedAt),
+        ),
+      );
+
+    for (const entrada of entradas) {
+      const suyos = porDia.get(entrada.staffMemberId) ?? new Map<string, number>();
+      suyos.set(entrada.workDate, (suyos.get(entrada.workDate) ?? 0) + entrada.minutes);
+      porDia.set(entrada.staffMemberId, suyos);
+    }
+  }
+
+  const diasDelPeriodo = semana ? eachDayOfPeriod(semana.startDate, semana.endDate) : [];
+
   const cards: (StaffBoardCard & { group: StaffGroup })[] = rows.map((row) => {
     const hourlyRate = row.hourlyRate ?? 0;
+    const suyos = porDia.get(row.id);
     return {
       id: row.id,
       name: row.name,
@@ -625,6 +672,10 @@ export async function getStaffBoard(
       periodMinutes: row.periodMinutes,
       periodEntries: row.periodEntries,
       periodAmount: calculateEarnings(row.periodMinutes, hourlyRate),
+      periodDays: diasDelPeriodo.map((dia) => ({
+        workDate: dia,
+        minutes: suyos?.get(dia) ?? 0,
+      })),
       group: groupForCategory(row.category),
     };
   });

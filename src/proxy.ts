@@ -19,16 +19,22 @@ const MANTENIMIENTO_PATH = "/mantenimiento";
 /**
  * Cuánto puede pedir una misma dirección por minuto.
  *
- * Los números salen de lo que hace una persona de verdad: la pantalla se
- * refresca sola cada doce segundos —cinco por minuto— y navegar entre
- * secciones agrega unos pocos. Ciento veinte deja lugar para varias pestañas
- * abiertas y sigue cortando a un script mucho antes de que la base lo note.
+ * El primer número que puse —ciento veinte lecturas— saltaba con uso normal, y
+ * lo descubrí navegando yo mismo. Una página de este panel no es UN pedido:
+ * navegar trae la vista del servidor, la pantalla se refresca sola cada doce
+ * segundos, y con dos o tres pestañas abiertas eso se multiplica. Un freno que
+ * corta a quien está trabajando es peor que no tener freno: lo primero que
+ * pasa es que alguien lo apaga.
+ *
+ * Trescientas por minuto son cinco por segundo sostenidos. Ninguna persona
+ * llega ahí moviendo el mouse, y un script que machaca una URL lo pasa en el
+ * primer segundo.
  *
  * Escribir es otra cosa: un formulario, un pago, una casilla de la planilla.
- * Nadie hace cuarenta en un minuto a mano, y cada uno cuesta una transacción.
+ * Nadie hace sesenta en un minuto a mano, y cada una cuesta una transacción.
  */
-const FRENO_LECTURA = { maximo: 120, ventanaMs: 60_000 } as const;
-const FRENO_ESCRITURA = { maximo: 40, ventanaMs: 60_000 } as const;
+const FRENO_LECTURA = { maximo: 300, ventanaMs: 60_000 } as const;
+const FRENO_ESCRITURA = { maximo: 60, ventanaMs: 60_000 } as const;
 
 /**
  * El acceso tiene su propio freno, mucho más corto.
@@ -151,9 +157,26 @@ export function proxy(request: NextRequest): NextResponse {
     );
 
     if (!veredicto.permitido) {
+      /**
+       * La respuesta se devuelve en HTML y no en texto pelado: esto puede caer
+       * en medio de una navegación, y un navegador mostrando texto plano sobre
+       * fondo blanco parece que el sistema explotó. Va mínima y sin depender de
+       * nada: el punto de frenar es no gastar recursos.
+       */
       const respuesta = new NextResponse(
-        "Demasiados pedidos. Probá de nuevo en " + veredicto.esperaSegundos + " segundos.",
-        { status: 429, headers: { "Content-Type": "text/plain; charset=utf-8" } },
+        '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">' +
+          "<title>Demasiados pedidos</title>" +
+          '<meta http-equiv="refresh" content="' +
+          veredicto.esperaSegundos +
+          '">' +
+          "<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#07080a;" +
+          "color:#e8e9ec;font:15px/1.6 system-ui,sans-serif;text-align:center;padding:24px}" +
+          "p{color:#8b8f98;font-size:13px;margin:.5rem 0 0}</style>" +
+          "<div><strong>Frená un toque</strong>" +
+          "<p>Llegaron demasiados pedidos desde esta conexión.<br>Esto se reintenta solo en " +
+          veredicto.esperaSegundos +
+          " segundos.</p></div>",
+        { status: 429, headers: { "Content-Type": "text/html; charset=utf-8" } },
       );
       respuesta.headers.set("Retry-After", String(veredicto.esperaSegundos));
       return securityHeaders(respuesta as NextResponse, nonce);

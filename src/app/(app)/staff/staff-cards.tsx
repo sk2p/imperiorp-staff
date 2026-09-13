@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { Icon } from "@/components/layout/icons";
 import { Badge, cn } from "@/components/ui/primitives";
+import { PulsoSemanal } from "@/components/ui/pulso";
 import { Tilt } from "@/components/ui/tilt";
 import { GROUP_DEFINITIONS, readableTextOn } from "@/domain/groups";
 import { formatMoney, formatMoneyCompact } from "@/domain/money";
@@ -111,6 +112,21 @@ function StaffCard({
         <Dato label="ID en el servidor">
           <span className={card.inGameId ? "mono" : undefined}>{card.inGameId ?? "—"}</span>
         </Dato>
+
+        {/*
+          El reparto de la semana, día por día.
+
+          Va como una fila propia de la grilla y no adentro del dato de horas:
+          ese párrafo recorta lo que se pasa de ancho, y el pulso quedaba
+          cortado con puntos suspensivos. Acá tiene el ancho de la ficha entera,
+          que además es donde mejor se lee la forma de la semana.
+        */}
+        <div className="col-span-2">
+          <p className="text-chalk-700 text-[0.5625rem] font-semibold tracking-[0.12em] uppercase">
+            Cómo se repartió
+          </p>
+          <PulsoSemanal dias={card.periodDays} className="mt-1" />
+        </div>
       </div>
 
       <footer className="capa mt-3 flex items-center justify-between gap-2">

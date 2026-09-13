@@ -1,14 +1,6 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  useTransition,
-  type MouseEvent,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 
 import { Icon } from "@/components/layout/icons";
 import { useCsrfToken, useToast } from "@/components/ui/interactive";
@@ -153,10 +145,9 @@ export function PaymentBoardTable({ board, weekId, canPay, canVoid, isClosed }: 
     [token, weekId, toast],
   );
 
-  const openMenu = (event: MouseEvent<HTMLTableRowElement>, row: Menu) => {
+  const abrirMenu = (x: number, y: number, row: Omit<Menu, "x" | "y">) => {
     if (!canPay) return;
-    event.preventDefault();
-    setMenu({ ...row, x: event.clientX, y: event.clientY });
+    setMenu({ ...row, x, y });
   };
 
   return (
@@ -230,21 +221,21 @@ export function PaymentBoardTable({ board, weekId, canPay, canVoid, isClosed }: 
                 {group.rows.map((row) => (
                   <tr
                     key={row.staffMemberId}
-                    onContextMenu={(event) =>
-                      openMenu(event, {
-                        x: 0,
-                        y: 0,
+                    onContextMenu={(event) => {
+                      if (!canPay) return;
+                      event.preventDefault();
+                      abrirMenu(event.clientX, event.clientY, {
                         staffMemberId: row.staffMemberId,
                         name: row.name,
                         paid: row.paid,
                         amount: row.amount,
-                      })
-                    }
+                      });
+                    }}
                     className={cn(
                       row.paid ? "pay-row-paid" : "pay-row-pending",
                       canPay && "cursor-context-menu",
                     )}
-                    title={canPay ? "Click derecho para cambiar el estado" : undefined}
+                    title={canPay ? "Click derecho —o tocá el estado— para cambiarlo" : undefined}
                   >
                     <td className="text-chalk-100 font-medium">
                       {row.name}
@@ -280,14 +271,60 @@ export function PaymentBoardTable({ board, weekId, canPay, canVoid, isClosed }: 
                       ) : null}
                     </td>
                     <td className="text-center">
-                      <span
-                        className={cn("pay-chip", row.paid ? "pay-chip-paid" : "pay-chip-pending")}
-                      >
+                      {/*
+                        El estado es un BOTÓN, no un cartel.
+
+                        Cambiarlo se hacía sólo con clic derecho, que en un
+                        teléfono no existe: desde el celular no había manera de
+                        marcar un pago. Y la mitad del staff abre esto desde el
+                        teléfono. Tocar el estado abre el mismo menú, anclado al
+                        propio botón; el clic derecho sobre la fila sigue
+                        andando para quien ya lo tenía en la mano.
+                      */}
+                      {canPay ? (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            const caja = event.currentTarget.getBoundingClientRect();
+                            abrirMenu(caja.left, caja.bottom + 6, {
+                              staffMemberId: row.staffMemberId,
+                              name: row.name,
+                              paid: row.paid,
+                              amount: row.amount,
+                            });
+                          }}
+                          aria-haspopup="menu"
+                          aria-label={
+                            "Cambiar el estado del pago de " +
+                            row.name +
+                            " (ahora: " +
+                            (row.paid ? "pagado" : "falta pagar") +
+                            ")"
+                          }
+                          className={cn(
+                            "pay-chip pay-chip-boton",
+                            row.paid ? "pay-chip-paid" : "pay-chip-pending",
+                          )}
+                        >
+                          <span
+                            className={cn("pay-dot", row.paid ? "pay-dot-paid" : "pay-dot-pending")}
+                          />
+                          {row.paid ? "Pagado" : "Falta pagar"}
+                        </button>
+                      ) : (
                         <span
-                          className={cn("pay-dot", row.paid ? "pay-dot-paid" : "pay-dot-pending")}
-                        />
-                        {row.paid ? "Pagado" : "Falta pagar"}
-                      </span>
+                          className={cn(
+                            "pay-chip",
+                            row.paid ? "pay-chip-paid" : "pay-chip-pending",
+                          )}
+                        >
+                          <span
+                            className={cn("pay-dot", row.paid ? "pay-dot-paid" : "pay-dot-pending")}
+                          />
+                          {row.paid ? "Pagado" : "Falta pagar"}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}

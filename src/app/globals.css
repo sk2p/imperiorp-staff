@@ -2828,3 +2828,81 @@ html::after {
     opacity: 0.5;
   }
 }
+
+/*
+ * El estado del pago, cuando además es el botón que lo cambia.
+ *
+ * Tiene que verse tocable sin gritar: crece apenas al pasar por encima, se
+ * hunde al apretarlo, y en pantalla táctil respeta el tamaño mínimo de un
+ * blanco de dedo — 44 píxeles de alto es lo que hace la diferencia entre
+ * apretar el estado y apretar la fila de al lado.
+ */
+.pay-chip-boton {
+  cursor: pointer;
+  border: 0;
+  font: inherit;
+  transition:
+    transform 140ms ease,
+    filter 140ms ease;
+}
+
+.pay-chip-boton:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.18);
+}
+
+.pay-chip-boton:active {
+  transform: translateY(0) scale(0.97);
+}
+
+@media (hover: none) {
+  .pay-chip-boton {
+    min-height: 2.25rem;
+    padding-inline: 0.75rem;
+  }
+}
+
+/* -------------------------------------------------------------------------- *
+ * Pulso semanal
+ *
+ * Siete barras: una por día del período. Dicen la FORMA de la semana de esa
+ * persona —pareja o de un saque— que es lo que un total no puede decir.
+ * -------------------------------------------------------------------------- */
+.pulso {
+  /* `inline-flex` y no `flex`: esto vive adentro de un párrafo. */
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 1.375rem;
+  width: 100%;
+}
+
+.pulso-barra {
+  flex: 1 1 0;
+  min-width: 2px;
+  border-radius: 1px;
+  background: rgb(255 255 255 / 0.08);
+  transform-origin: bottom center;
+  animation: pulso-crece 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* El día con horas toma el color del rango, que ya viaja en la ficha. */
+.pulso-con-horas {
+  background: linear-gradient(
+    180deg,
+    var(--rank, #6f747d),
+    color-mix(in srgb, var(--rank, #6f747d) 45%, transparent)
+  );
+}
+
+@keyframes pulso-crece {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulso-barra {
+    animation: none;
+  }
+}
