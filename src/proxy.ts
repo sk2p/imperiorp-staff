@@ -109,9 +109,16 @@ function securityHeaders(response: NextResponse, nonce: string): NextResponse {
   headers.set("X-Frame-Options", "DENY");
   headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   headers.set("X-DNS-Prefetch-Control", "off");
+  /**
+   * `browsing-topics` y no `interest-cohort`. Las dos cierran lo mismo —que el
+   * navegador arme un perfil de intereses de quien visita para publicidad—, pero
+   * `interest-cohort` era el nombre de FLoC, que Chrome retiró: la cabecera con
+   * ese nombre salía como error en la consola en cada carga. Ver
+   * `tests/cabeceras.test.ts`.
+   */
   headers.set(
     "Permissions-Policy",
-    "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
+    "camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()",
   );
   headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
   headers.set("Cross-Origin-Opener-Policy", "same-origin");
