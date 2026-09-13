@@ -232,7 +232,19 @@ async function copiaDiaria(): Promise<void> {
       kilobytes: Math.round(resultado.bytes / 1024),
       filas: resultado.filas,
       viejasBorradas: borradas,
+      fueraDeLaMaquina: resultado.subida,
     });
+
+    /**
+     * Que la copia quede sólo en este disco no es un detalle: es la mitad del
+     * trabajo sin hacer. Se avisa una vez por día, con el resto del resumen, en
+     * vez de quedar enterrado en un log que nadie abre.
+     */
+    if (!resultado.subida) {
+      logger.warn(
+        "La copia quedó sólo en esta máquina: configurá DISCORD_BACKUP_WEBHOOK para sacarla de acá",
+      );
+    }
   } catch (error) {
     logger.error("Falló la copia de seguridad diaria", { error });
   }

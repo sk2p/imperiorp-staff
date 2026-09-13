@@ -29,7 +29,8 @@
     "db:reparar-snapshots": "tsx --env-file=.env src/db/repair-snapshots.ts",
     "bot": "tsx --env-file=.env src/bot/index.ts",
     "bot:dev": "tsx watch --env-file=.env src/bot/index.ts",
-    "bot:emojis": "tsx --env-file=.env src/bot/sync-emojis.ts"
+    "bot:emojis": "tsx --env-file=.env src/bot/sync-emojis.ts",
+    "bot:build": "node scripts/build-bot.mjs"
   },
   "dependencies": {
     "@electric-sql/pglite": "0.5.8",
@@ -62,6 +63,7 @@
     "@vitest/coverage-v8": "^5.0.0",
     "autoprefixer": "10.5.5",
     "drizzle-kit": "0.31.10",
+    "esbuild": "^0.28.2",
     "postcss": "8.5.28",
     "prettier": "^3.9.6",
     "prettier-plugin-tailwindcss": "^0.8.1",

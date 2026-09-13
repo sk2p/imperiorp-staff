@@ -1,5 +1,5 @@
 import { createWriteStream } from "node:fs";
-import { mkdir, readdir, stat, unlink } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { createGzip } from "node:zlib";
 import { pipeline } from "node:stream/promises";
@@ -93,6 +93,8 @@ export interface ResultadoCopia {
   readonly bytes: number;
   readonly filas: number;
   readonly tablas: Record<string, number>;
+  /** Si además quedó guardada fuera de esta máquina. */
+  readonly subida: boolean;
 }
 
 function sello(fecha = new Date()): string {
@@ -248,7 +250,87 @@ export async function crearCopia(carpeta: string): Promise<ResultadoCopia> {
   await pipeline(Readable.from(lineas()), createGzip({ level: 9 }), createWriteStream(archivo));
 
   const info = await stat(archivo);
-  return { archivo, bytes: info.size, filas, tablas };
+  const subida = await subirCopia(archivo, info.size);
+
+  return { archivo, bytes: info.size, filas, tablas, subida };
+}
+
+/**
+ * Manda la copia a un canal de Discord, si está configurado.
+ *
+ * Es la otra mitad de una copia de seguridad. Un archivo guardado en la misma
+ * máquina que corre el bot no protege del caso más común: que esa máquina se
+ * rompa, se formatee o se pierda. Recién cuando el archivo está en OTRO lado
+ * hay copia de verdad.
+ *
+ * LEER ESTO ANTES DE ACTIVARLO
+ *
+ * El archivo lleva la base entera: los hashes de las contraseñas, las sesiones
+ * abiertas, los sueldos y los datos de cuarenta y tres personas. Quien pueda
+ * leer ese canal puede bajarse todo eso.
+ *
+ * Así que el canal tiene que ser uno donde entren únicamente las personas que
+ * ya podrían ver todo eso en el panel: fundadores, y nadie más. No el canal de
+ * la bitácora, no el de pagos, no uno "de staff". Uno propio, cerrado, que
+ * exista sólo para esto.
+ *
+ * Por eso está apagado salvo que se defina `DISCORD_BACKUP_WEBHOOK`, y por eso
+ * la variable tiene su propio nombre en vez de reusar la de la bitácora: son
+ * dos canales con dos públicos distintos y mezclarlos sería regalar la base.
+ */
+async function subirCopia(archivo: string, bytes: number): Promise<boolean> {
+  const url = process.env.DISCORD_BACKUP_WEBHOOK?.trim();
+  if (!url) return false;
+
+  if (!/^https:\/\/(canary\.|ptb\.)?discord\.com\/api\/webhooks\//.test(url)) {
+    logger.warn("DISCORD_BACKUP_WEBHOOK no parece un webhook de Discord: no se sube la copia");
+    return false;
+  }
+
+  // Discord rechaza los adjuntos grandes. La copia pesa unos 90 KB hoy; el
+  // día que crezca de más, es mejor no mandarla que mandarla cortada.
+  const MAXIMO = 7 * 1024 * 1024;
+  if (bytes > MAXIMO) {
+    logger.warn("La copia es demasiado grande para Discord: queda sólo en disco", { bytes });
+    return false;
+  }
+
+  try {
+    const contenido = await readFile(archivo);
+    const nombre = path.basename(archivo);
+
+    const formulario = new FormData();
+    formulario.append(
+      "payload_json",
+      JSON.stringify({
+        username: "Imperio RP · Copias",
+        content:
+          "Copia de seguridad del " +
+          new Date().toLocaleDateString("es-AR", { dateStyle: "long" }) +
+          " · " +
+          (bytes / 1024).toFixed(0) +
+          " KB",
+        allowed_mentions: { parse: [] as string[] },
+      }),
+    );
+    formulario.append("files[0]", new Blob([contenido as unknown as BlobPart]), nombre);
+
+    const respuesta = await fetch(url, {
+      method: "POST",
+      body: formulario,
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (!respuesta.ok) {
+      logger.warn("Discord rechazó la copia", { estado: respuesta.status });
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    logger.warn("No se pudo subir la copia a Discord", { error });
+    return false;
+  }
 }
 
 /**
@@ -295,7 +377,15 @@ async function main(): Promise<void> {
     if (cuenta > 0) console.log("  " + tabla.padEnd(24) + String(cuenta).padStart(7));
   }
 
-  if (borradas > 0) console.log("-".repeat(64) + "\n  copias viejas borradas: " + borradas);
+  console.log("-".repeat(64));
+  console.log(
+    "  fuera de esta máquina: " +
+      (resultado.subida
+        ? "sí, mandada al canal de Discord"
+        : "NO — sólo está en este disco. Ver DISCORD_BACKUP_WEBHOOK."),
+  );
+
+  if (borradas > 0) console.log("  copias viejas borradas: " + borradas);
   console.log("=".repeat(64) + "\n");
 }
 
