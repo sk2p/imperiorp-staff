@@ -24,6 +24,8 @@
     "db:add-account": "tsx --env-file=.env src/db/add-account.ts",
     "db:set-role": "tsx --env-file=.env src/db/set-role.ts",
     "db:smoke": "tsx --env-file=.env src/db/smoke.ts",
+    "db:backup": "tsx --env-file=.env src/db/backup.ts",
+    "db:verificar-copia": "tsx --env-file=.env.prueba src/db/verify-backup.ts",
     "db:reparar-snapshots": "tsx --env-file=.env src/db/repair-snapshots.ts",
     "bot": "tsx --env-file=.env src/bot/index.ts",
     "bot:dev": "tsx watch --env-file=.env src/bot/index.ts",

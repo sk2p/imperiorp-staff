@@ -11,6 +11,7 @@ import {
   todayIsCovered,
 } from "@/server/shifts";
 import { ensureCurrentPeriod, rotatePeriodIfDue } from "@/server/rotation";
+import { crearCopia, podarCopias } from "@/db/backup";
 import { COLOR, GROUP_COLOR, allGroupChannels, botConfig, groupChannels } from "./config";
 import {
   avisoCierrePeriodo,
@@ -25,6 +26,7 @@ import {
  *
  *   · A medianoche se publica el resumen del día que terminó: uno por bloque en
  *     su canal, y uno global con todo el staff.
+ *   · A medianoche también se guarda una copia de seguridad de la base entera.
  *   · Cada diez minutos se cierran los fichajes que quedaron abiertos de más y
  *     se controla que el día de hoy caiga adentro de algún período abierto. Si
  *     no lo hay, se abre el de la semana —de sábado a viernes— y se anuncia.
@@ -86,6 +88,9 @@ function programarMedianoche(publicar: Publicar): void {
       // terminó, y recién ahí se cierra el período si corresponde.
       .then(() => rotarPeriodo(publicar))
       .catch((error: unknown) => logger.error("Falló la rotación del período", { error }))
+      // Y al final, la copia del día: después de que todo lo del día quedó
+      // asentado, para que la copia contenga el cierre y no lo de antes.
+      .then(() => copiaDiaria())
       .finally(() => programarMedianoche(publicar));
   }, espera);
 }
@@ -194,6 +199,42 @@ async function revisarVencidos(publicar: Publicar): Promise<void> {
     }
   } catch (error) {
     logger.error("Falló la revisión de fichajes vencidos", { error });
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Copia de seguridad diaria                                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Una copia por día, junto con el resumen de medianoche.
+ *
+ * Todo el sistema vive en una base en la nube. Sin una copia afuera, un borrado
+ * accidental o un problema del proveedor se lleva las horas, los pagos y el
+ * historial entero, y no hay de dónde volver.
+ *
+ * Va acá y no en la tarea programada de la web porque el archivo tiene que
+ * quedar en algún disco: en Vercel el disco se borra al terminar cada pedido.
+ * Mientras el bot corra en una máquina de verdad, la copia queda ahí.
+ *
+ * Si falla, se anota y se sigue. Una copia que no se pudo hacer no puede
+ * arruinar el resumen del día ni frenar los fichajes.
+ */
+async function copiaDiaria(): Promise<void> {
+  try {
+    const carpeta = process.env.CARPETA_COPIAS?.trim() || "copias";
+
+    const resultado = await crearCopia(carpeta);
+    const borradas = await podarCopias(carpeta);
+
+    logger.info("Copia de seguridad creada", {
+      archivo: resultado.archivo,
+      kilobytes: Math.round(resultado.bytes / 1024),
+      filas: resultado.filas,
+      viejasBorradas: borradas,
+    });
+  } catch (error) {
+    logger.error("Falló la copia de seguridad diaria", { error });
   }
 }
 

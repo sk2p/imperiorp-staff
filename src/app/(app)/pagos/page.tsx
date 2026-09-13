@@ -106,12 +106,22 @@ export default async function PaymentsPage({
         currentHref={currentWeek && week.id !== currentWeek.id ? "/pagos" : undefined}
       />
 
+      {/*
+        El cartel decía que los pagos se registran con el período cerrado, y
+        abajo el tablero los dejaba marcar igual. Decir una cosa y hacer otra es
+        peor que cualquiera de las dos por separado: quien lee el cartel y marca
+        igual deja de creerle a los carteles.
+        Se puede pagar en abierto — es lo que se hace en la práctica — así que
+        el aviso pasó a decir lo único que importa saber: que el importe todavía
+        se puede mover abajo de los pies.
+      */}
       {!isClosed ? (
         <Callout tone="warning" title="Este período todavía está abierto">
-          Los pagos se registran con el período cerrado. Mientras siga abierto las horas pueden
-          cambiar, y un importe ya abonado dejaría de coincidir.{" "}
+          Se puede pagar igual, pero las horas pueden seguir cambiando: si alguien carga o corrige
+          una hora después de que marcaste a alguien como pagado, el importe abonado deja de
+          coincidir con el que corresponde. La fila lo avisa cuando pasa.{" "}
           <Link href="/periodos" className="font-semibold underline underline-offset-2">
-            Ir a períodos
+            Cerrar el período congela los importes
           </Link>
         </Callout>
       ) : null}
