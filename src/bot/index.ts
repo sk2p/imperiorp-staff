@@ -25,6 +25,7 @@ import {
 
 import { closeDatabase } from "@/db";
 import { isAppError, isTransientDatabaseError } from "@/lib/core/errors";
+import { consumir } from "@/lib/core/throttle";
 import { logger } from "@/lib/core/logger";
 import { formatDuration, localDate } from "@/domain/clock";
 import { GROUP_DEFINITIONS, isStaffGroup, type StaffGroup } from "@/domain/groups";
@@ -35,6 +36,7 @@ import {
   getOpenShift,
   linkDiscordAccount,
   listActiveShifts,
+  hayAdministracionVinculada,
   listUnlinkedMembers,
   periodOverview,
   periodRanking,
@@ -106,12 +108,42 @@ async function puedeAdministrar(
   const member = await findMemberByDiscord(interaction.user.id);
   if (esAdministracion(member)) return { ok: true, member };
 
+  /**
+   * La puerta de emergencia, y por qué se cierra sola.
+   *
+   * Al principio nadie está vinculado, así que ningún comando de administración
+   * podría usarse jamás: el primer vínculo tiene que poder crearlo alguien, y
+   * ese alguien es quien administra el servidor de Discord.
+   *
+   * Pero quien administra un servidor de Discord no es necesariamente ADM del
+   * staff. Con la puerta abierta para siempre, cualquiera con permisos de
+   * Discord podría ver lo que cobra cualquiera, o apuntar los fichajes de otro
+   * a su propia ficha. En cuanto hay un ADM vinculado, deja de valer.
+   */
+  if (await hayAdministracionVinculada()) return { ok: false, member };
+
   const permisos = interaction.memberPermissions;
   const esDuenoDelServidor =
     permisos?.has(PermissionFlagsBits.ManageGuild) === true ||
     permisos?.has(PermissionFlagsBits.Administrator) === true;
 
   return { ok: esDuenoDelServidor, member };
+}
+
+/**
+ * Freno de interacciones por persona.
+ *
+ * Los botones del panel de fichaje están a la vista de todo el staff y cada
+ * toque abre una transacción. Alguien apretando entrada/salida sin parar —por
+ * jugar o por un cliente colgado— basta para castigar la base, que es el
+ * recurso escaso y compartido con la página. Veinte por minuto es mucho más de
+ * lo que hace nadie fichando de verdad.
+ */
+const FRENO_BOT = { maximo: 20, ventanaMs: 60_000 } as const;
+
+function frenado(interaction: RepliableInteraction): number {
+  const veredicto = consumir("discord:" + interaction.user.id, FRENO_BOT);
+  return veredicto.permitido ? 0 : veredicto.esperaSegundos;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -707,7 +739,9 @@ async function manejarComando(interaction: ChatInputCommandInteraction): Promise
     await responder(
       interaction,
       sinPermiso(
-        "Este comando es de **ADM** para arriba, o de quien administre el servidor de Discord.",
+        "Este comando es de **ADM** para arriba.\n\n" +
+          "-# Administrar el servidor de Discord alcanzaba sólo hasta que hubiera un ADM " +
+          "vinculado. Ya lo hay, así que ahora manda el rango del staff.",
       ),
     );
     return;
@@ -864,6 +898,28 @@ client.on(Events.InteractionCreate, async (interaction: Interaction) => {
       !interaction.replied
     ) {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+      /**
+       * El freno va acá, apenas se difiere y antes de tocar la base.
+       *
+       * Se responde igual —Discord muestra "la aplicación no responde" si uno
+       * se queda callado— pero sin consultar nada. Frenar después de trabajar
+       * no frena nada.
+       */
+      const espera = frenado(interaction);
+      if (espera > 0) {
+        await responder(
+          interaction,
+          errorUi(
+            "Estás yendo muy rápido. Probá de nuevo en **" +
+              espera +
+              " segundo" +
+              (espera === 1 ? "" : "s") +
+              "**.",
+          ),
+        );
+        return;
+      }
     }
 
     if (interaction.isChatInputCommand()) return void (await manejarComando(interaction));

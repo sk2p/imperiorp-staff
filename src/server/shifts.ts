@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { db, withTransaction, type Transaction } from "@/db";
 import { hourEntries, shiftSessions, staffMembers, weeklyStaffRecords, weeks } from "@/db/schema";
@@ -13,6 +13,8 @@ import {
 } from "@/domain/clock";
 import { groupForRank, type StaffGroup } from "@/domain/groups";
 import { rankTier } from "@/domain/ranks";
+import { systemActor } from "@/lib/auth/context";
+import { appendAuditLog } from "./audit";
 import { recalculateWeekRecords, weekBreakdowns } from "./weeks";
 
 /**
@@ -94,6 +96,8 @@ export async function linkDiscordAccount(
   staffMemberId: string,
   discordUserId: string,
   discordTag: string | null,
+  /** Quién lo vinculó, para que quede en la auditoría. */
+  porUsuario = "bot",
 ): Promise<ShiftMember> {
   return withTransaction(async (tx) => {
     await tx
@@ -117,18 +121,89 @@ export async function linkDiscordAccount(
       });
 
     if (!row) throw notFound("El miembro del staff");
+
+    /**
+     * Queda en la auditoría, porque decide de quién son las horas.
+     *
+     * Vincular una cuenta de Discord a una ficha es decir "el tiempo que fiche
+     * esta persona se le paga a esta ficha". Hacerlo sin registro deja abierta
+     * la posibilidad de apuntar los fichajes de alguien a otra ficha y que no
+     * quede rastro de quién lo cambió.
+     */
+    await appendAuditLog(tx, {
+      actor: systemActor(porUsuario + " (Discord)"),
+      action: "STAFF_UPDATED",
+      entity: "staff_members",
+      entityId: row.id,
+      summary: "Vinculó la cuenta de Discord " + discordUserId + " a la ficha de " + row.name,
+      after: { discordUserId, discordTag },
+      reason: "Vinculación desde el bot",
+    });
+
     return { ...row, group: groupForRank(row.rank) };
   });
 }
 
-export async function unlinkDiscordAccount(discordUserId: string): Promise<number> {
-  const filas = await db
-    .update(staffMembers)
-    .set({ discordUserId: null, updatedAt: new Date() })
-    .where(eq(staffMembers.discordUserId, discordUserId))
-    .returning({ id: staffMembers.id });
-  return filas.length;
+export async function unlinkDiscordAccount(
+  discordUserId: string,
+  porUsuario = "bot",
+): Promise<number> {
+  return withTransaction(async (tx) => {
+    const filas = await tx
+      .update(staffMembers)
+      .set({ discordUserId: null, updatedAt: new Date() })
+      .where(eq(staffMembers.discordUserId, discordUserId))
+      .returning({ id: staffMembers.id, name: staffMembers.name });
+
+    for (const fila of filas) {
+      await appendAuditLog(tx, {
+        actor: systemActor(porUsuario + " (Discord)"),
+        action: "STAFF_UPDATED",
+        entity: "staff_members",
+        entityId: fila.id,
+        summary:
+          "Desvinculó la cuenta de Discord " + discordUserId + " de la ficha de " + fila.name,
+        before: { discordUserId },
+        after: { discordUserId: null },
+        reason: "Desvinculación desde el bot",
+      });
+    }
+
+    return filas.length;
+  });
 }
+
+/**
+ * ¿Ya hay alguien de administración con su Discord vinculado?
+ *
+ * De esto depende que siga abierta la puerta de emergencia del bot. Al
+ * principio nadie está vinculado, así que ningún comando de administración
+ * podría usarse jamás: el primer vínculo tiene que poder crearlo alguien, y ese
+ * alguien es quien administra el servidor de Discord.
+ *
+ * Pero esa puerta no puede quedar abierta para siempre. Quien administra un
+ * servidor de Discord no es necesariamente ADM del staff, y con la puerta
+ * abierta podría ver lo que cobra cualquiera o apuntar los fichajes de otro a
+ * su propia ficha. En cuanto existe un ADM vinculado, la puerta se cierra sola.
+ */
+export async function hayAdministracionVinculada(): Promise<boolean> {
+  const [fila] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(staffMembers)
+    .where(and(isNotNull(staffMembers.discordUserId), isNull(staffMembers.archivedAt)));
+
+  if (!fila || fila.total === 0) return false;
+
+  const candidatos = await db
+    .select({ rank: staffMembers.rank })
+    .from(staffMembers)
+    .where(and(isNotNull(staffMembers.discordUserId), isNull(staffMembers.archivedAt)));
+
+  return candidatos.some((c) => rankTier(c.rank) >= TIER_ADMINISTRACION);
+}
+
+/** Desde qué escalón se considera administración del fichaje. ADM. */
+export const TIER_ADMINISTRACION = 7;
 
 /** Fichas sin cuenta de Discord, para el buscador del panel de administración. */
 export async function listUnlinkedMembers(
