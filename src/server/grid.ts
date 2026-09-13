@@ -29,6 +29,7 @@ import {
 } from "@/domain/ranks";
 import { formatMinutes, MAX_MINUTES_PER_ENTRY } from "@/domain/time";
 import { appendAuditLog } from "./audit";
+import { ubicarEntreSuRango } from "./orden-staff";
 import { loadWeekForWrite, recalculateWeekRecords } from "./weeks";
 
 /**
@@ -508,16 +509,19 @@ export async function changeRankFromGrid(
       .set({
         rank: input.rank,
         category: categoryForRank(input.rank),
-        /**
-         * Al cambiar de rango vuelve al escalón del rango nuevo. Si conservara
-         * su posición anterior, un ascenso de MOD a ADM++ lo dejaría al final
-         * del bloque High con una posición que ya no significa nada.
-         */
-        displayOrder: rankBaseOrder(input.rank),
         version: member.version + 1,
         updatedAt: new Date(),
       })
       .where(eq(staffMembers.id, member.id));
+
+    /**
+     * Entre los de su rango nuevo, no al final del bloque.
+     *
+     * Antes se le asignaba el escalón fijo del rango, que va de a cien, y el
+     * equipo ya había acomodado la lista a mano con posiciones de a uno: la
+     * persona caía abajo de todo. Ver `orden-staff.ts`.
+     */
+    await ubicarEntreSuRango(tx, member.id, input.rank);
 
     await tx.execute(sql`
       insert into staff_rank_history

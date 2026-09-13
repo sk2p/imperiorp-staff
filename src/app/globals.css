@@ -61,11 +61,23 @@ body {
   min-height: 100dvh;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  /* Halo imperial muy tenue en el borde superior. Da profundidad sin ruido. */
+}
+
+/* Halo imperial muy tenue en el borde superior. Da profundidad sin ruido.
+
+   Va en su propia capa fija y no como fondo del body con
+   `background-attachment: fixed`. Un fondo fijo obliga al navegador a repintar
+   la pantalla entera en cada cuadro de scroll —en el teléfono se siente en las
+   tablas largas—; una capa fija aparte queda quieta sin repintar nada. */
+html::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
   background-image:
     radial-gradient(80rem 32rem at 50% -14rem, rgb(229 22 44 / 0.1), transparent 70%),
     radial-gradient(60rem 30rem at 110% 100%, rgb(229 22 44 / 0.035), transparent 65%);
-  background-attachment: fixed;
 }
 
 ::selection {
@@ -926,8 +938,15 @@ body::after {
   height: 55vh;
   z-index: -1;
   pointer-events: none;
-  background: radial-gradient(50% 50% at 50% 50%, rgb(229 22 44 / 0.055), transparent 70%);
-  filter: blur(30px);
+  /* Sin `filter: blur`: el degradado ya se deshace solo, y un desenfoque sobre
+     algo que se anima sin parar es trabajo de la placa de video en cada cuadro. */
+  background: radial-gradient(
+    50% 50% at 50% 50%,
+    rgb(229 22 44 / 0.05),
+    rgb(229 22 44 / 0.02) 40%,
+    transparent 72%
+  );
+  will-change: transform, opacity;
   animation: respirar 20s ease-in-out infinite;
 }
 
@@ -986,6 +1005,18 @@ body::after {
 .staff-card {
   transform: perspective(900px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
   transform-style: preserve-3d;
+}
+
+/* Mientras el puntero está encima, la ficha SIGUE a la mano: transición
+   cortísima y sin rebote. La de 220 ms con rebote de arriba, aplicada a cada
+   movimiento del mouse, volvía a arrancar desde la mitad del camino una y otra
+   vez, y la ficha iba siempre detrás del cursor. El rebote queda para la vuelta:
+   al salir, `Tilt` saca la marca y vuelve la transición normal. */
+[data-inclinando] > .staff-card {
+  transition:
+    transform 70ms linear,
+    border-color 200ms ease,
+    box-shadow 220ms ease;
 }
 
 .staff-card:hover {
@@ -2577,6 +2608,11 @@ select:focus {
   contain: strict;
 }
 
+/* Sin `filter: blur`. Tenía uno de 90 píxeles sobre dos círculos de 70 vmax:
+   el navegador tenía que desenfocar dos texturas del tamaño de la pantalla, y
+   en un teléfono eso es memoria de video y batería gastadas en algo que el
+   degradado radial ya hace solo. Con un escalón intermedio, el borde se
+   deshace igual de suave. */
 .aurora::before,
 .aurora::after {
   content: "";
@@ -2584,21 +2620,30 @@ select:focus {
   width: 70vmax;
   height: 70vmax;
   border-radius: 50%;
-  filter: blur(90px);
   will-change: transform;
 }
 
 .aurora::before {
   top: -22%;
   left: -12%;
-  background: radial-gradient(circle, rgb(229 22 44 / 0.13), transparent 62%);
+  background: radial-gradient(
+    circle,
+    rgb(229 22 44 / 0.12),
+    rgb(229 22 44 / 0.05) 34%,
+    transparent 68%
+  );
   animation: aurora-deriva-a 34s ease-in-out infinite alternate;
 }
 
 .aurora::after {
   right: -18%;
   bottom: -26%;
-  background: radial-gradient(circle, rgb(80 40 160 / 0.1), transparent 62%);
+  background: radial-gradient(
+    circle,
+    rgb(80 40 160 / 0.09),
+    rgb(80 40 160 / 0.04) 34%,
+    transparent 68%
+  );
   animation: aurora-deriva-b 46s ease-in-out infinite alternate;
 }
 
@@ -2875,25 +2920,13 @@ a:hover .moneda-en-reposo .moneda-cuerpo {
 }
 
 /*
- * El horizonte: la línea donde el piso se pierde.
+ * Sin línea de horizonte, a propósito.
  *
- * Sin ella la cuadrícula se desvanece en la nada y el efecto se lee como una
- * textura borrosa. Con una línea tenue arriba, el ojo entiende que hay un plano
- * que llega hasta ahí.
+ * Hubo una: una raya roja de un píxel arriba del piso. Como el piso ocupa el
+ * 42 % inferior de la pantalla y queda fijo, la raya cruzaba la página por la
+ * mitad, detrás de todo, y asomaba entre las tarjetas como si fuera un error
+ * de dibujo. La cuadrícula ya se desvanece sola con su máscara.
  */
-.piso::after {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgb(229 22 44 / 0.22) 35%,
-    rgb(229 22 44 / 0.22) 65%,
-    transparent
-  );
-}
 
 /* -------------------------------------------------------------------------- *
  * Grano

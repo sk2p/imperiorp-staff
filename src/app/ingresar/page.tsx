@@ -35,7 +35,7 @@ export default async function LoginPage({
         aria-hidden
         className="pointer-events-none absolute -top-32 left-1/2 -translate-x-1/2 opacity-[0.045] blur-[1px]"
       >
-        <Image src="/imperiorplogo.webp" alt="" width={560} height={560} />
+        <Image src="/imperiorplogo.webp" alt="" width={560} height={560} loading="eager" />
       </div>
 
       <div className="anim-rise relative w-full max-w-[23rem]">

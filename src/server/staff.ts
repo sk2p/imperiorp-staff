@@ -18,13 +18,7 @@ import {
 } from "@/domain/groups";
 import { calculateEarnings } from "@/domain/payroll";
 import { eachDayOfPeriod } from "@/domain/periods";
-import {
-  categoryForRank,
-  compareRankChange,
-  rankBaseOrder,
-  rankLabel,
-  type StaffRank,
-} from "@/domain/ranks";
+import { categoryForRank, compareRankChange, rankLabel, type StaffRank } from "@/domain/ranks";
 import { containsPattern, offsetFor, paginate, type Paginated } from "@/validation/common";
 import type {
   ArchiveStaffInput,
@@ -35,6 +29,7 @@ import type {
 } from "@/validation/staff";
 import { appendAuditLog } from "./audit";
 import { joinStaffToOpenWeek } from "./grid";
+import { ubicarEntreSuRango } from "./orden-staff";
 /**
  * IMPERIO RP — Miembros del staff.
  *
@@ -260,12 +255,12 @@ export async function createStaffMember(
         name: input.name,
         rank: input.rank,
         category,
-        // Entra en el escalón de su rango, no al principio de la lista.
-        displayOrder: rankBaseOrder(input.rank),
         createdBy: actor.id,
       })
       .returning();
     if (!created) throw new Error("No se pudo crear el miembro del staff.");
+    // Entra junto a los de su rango, no al final ni al principio del bloque.
+    await ubicarEntreSuRango(tx, created.id, input.rank);
     await tx.insert(staffRankHistory).values({
       staffMemberId: created.id,
       fromRank: null,
@@ -371,14 +366,14 @@ export async function changeStaffRank(
       .set({
         rank: input.rank,
         category: categoryForRank(input.rank as StaffRank),
-        // Se reubica en el escalón del rango nuevo, igual que desde la grilla.
-        displayOrder: rankBaseOrder(input.rank),
         version: existing.version + 1,
         updatedAt: new Date(),
       })
       .where(and(eq(staffMembers.id, input.id), eq(staffMembers.version, input.expectedVersion)))
       .returning();
     if (!updated) throw concurrency();
+    // Entre los de su rango nuevo, igual que desde la planilla. Ver `orden-staff.ts`.
+    await ubicarEntreSuRango(tx, updated.id, input.rank);
     await tx.insert(staffRankHistory).values({
       staffMemberId: updated.id,
       fromRank: existing.rank,

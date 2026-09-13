@@ -20,7 +20,7 @@ export default function NotFound() {
         aria-hidden
         className="pointer-events-none absolute -top-28 left-1/2 -translate-x-1/2 opacity-[0.05] blur-[1px]"
       >
-        <Image src="/imperiorplogo.webp" alt="" width={520} height={520} />
+        <Image src="/imperiorplogo.webp" alt="" width={520} height={520} loading="eager" />
       </div>
 
       <div className="anim-rise relative w-full max-w-md text-center">

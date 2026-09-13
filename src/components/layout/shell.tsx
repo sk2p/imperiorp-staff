@@ -167,8 +167,10 @@ export function AppShell({
           profundidad al panel sin agregar nada que alguien tenga que mirar. */}
       <div aria-hidden className="aurora" />
 
-      {/* Barra lateral — escritorio */}
-      <aside className="bg-ink-900/80 fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-white/[0.07] backdrop-blur-xl lg:flex">
+      {/* Barra lateral — escritorio. Sin desenfoque de fondo: debajo no pasa
+          contenido, sólo el fondo animado, y el navegador recalculaba el
+          desenfoque en cada cuadro de esa animación sin que se viera nada. */}
+      <aside className="bg-ink-900/95 fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-white/[0.07] lg:flex">
         <div className="flex h-14 items-center border-b border-white/[0.07] px-4">
           <Brand />
         </div>
@@ -190,7 +192,7 @@ export function AppShell({
 
       <div className="flex min-w-0 flex-1 flex-col lg:pl-60">
         {/* Barra superior — móvil */}
-        <header className="bg-ink-950/85 sticky top-0 z-20 flex h-14 items-center justify-between gap-3 border-b border-white/[0.07] px-4 backdrop-blur-xl lg:hidden">
+        <header className="bg-ink-950/85 sticky top-0 z-20 flex h-14 items-center justify-between gap-3 border-b border-white/[0.07] px-4 backdrop-blur-md lg:hidden">
           <Brand />
           <div className="flex items-center gap-2">
             <button
@@ -223,7 +225,7 @@ export function AppShell({
       </div>
 
       {/* Barra inferior — móvil */}
-      <nav className="safe-bottom bg-ink-950/92 fixed inset-x-0 bottom-0 z-20 flex border-t border-white/[0.07] px-1 pt-1 backdrop-blur-xl lg:hidden">
+      <nav className="safe-bottom bg-ink-950/92 fixed inset-x-0 bottom-0 z-20 flex border-t border-white/[0.07] px-1 pt-1 backdrop-blur-md lg:hidden">
         {mobilePrimary.map((item) => {
           const active = isActiveHref(pathname, item.href);
           return (

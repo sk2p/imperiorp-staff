@@ -36,6 +36,17 @@ export function Coin({
    */
   readonly girar?: boolean;
 }) {
+  /**
+   * Las dos caras cargan de entrada, nunca en diferido.
+   *
+   * El dorso iba con la carga diferida por defecto, y Chrome lo marcaba: una
+   * imagen diferida que está en pantalla desde el primer cuadro no ahorra nada
+   * y lo avisa como riesgo de que la página salte al cargar. Además es el mismo
+   * archivo que el frente, así que ya está descargado: pedirlo de entrada no
+   * cuesta ni un byte.
+   */
+  const carga = { loading: "eager", fetchPriority: priority ? "high" : "auto" } as const;
+
   return (
     <div
       className={"moneda " + (girar ? "" : "moneda-en-reposo ") + (className ?? "")}
@@ -44,11 +55,11 @@ export function Coin({
     >
       <div className="moneda-cuerpo">
         <div className="moneda-cara moneda-frente">
-          <Image src="/imperiorplogo.webp" alt="" width={size} height={size} priority={priority} />
+          <Image src="/imperiorplogo.webp" alt="" width={size} height={size} {...carga} />
         </div>
 
         <div className="moneda-cara moneda-dorso">
-          <Image src="/imperiorplogo.webp" alt="" width={size} height={size} />
+          <Image src="/imperiorplogo.webp" alt="" width={size} height={size} {...carga} />
         </div>
 
         {Array.from({ length: REBANADAS }, (_, indice) => (

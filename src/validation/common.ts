@@ -3,6 +3,22 @@ import { z } from "zod";
 import { isCalendarDate } from "@/domain/periods";
 
 /**
+ * Zod sin `eval`.
+ *
+ * Para validar objetos más rápido, zod prueba una vez si puede compilar código
+ * con `new Function`. La política de seguridad de la página (CSP) no permite
+ * evaluar texto como código —es justamente lo que frena una inyección—, así
+ * que la prueba falla. Zod se da cuenta y sigue por el camino normal, pero el
+ * navegador igual registra la violación de la política en cada carga, y la
+ * consola de Chrome lo marca como problema.
+ *
+ * Con `jitless` zod ni siquiera lo intenta. Lo que se pierde es una
+ * optimización pensada para validar miles de objetos por segundo; acá se valida
+ * un formulario por vez.
+ */
+z.config({ jitless: true });
+
+/**
  * IMPERIO RP — Piezas de validación compartidas.
  *
  * Nada entra al dominio sin pasar por un esquema. El cliente manda lo que

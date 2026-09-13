@@ -58,7 +58,9 @@ beforeAll(async () => {
     })
     .returning();
   staffId = ficha!.id;
-});
+  // Correr todas las migraciones sobre una base nueva tarda varios segundos, y
+  // con la máquina ocupada pasa los diez que vitest le da a un gancho.
+}, 60_000);
 
 async function nuevaSemana(inicio: string, fin: string, cerrada: boolean) {
   const [semana] = await db
