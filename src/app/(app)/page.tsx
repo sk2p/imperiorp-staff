@@ -172,9 +172,9 @@ export default async function DashboardPage() {
               ? "Sin horas cargadas todavía"
               : "Promedio " +
                 formatMinutes(Math.round(periodMinutes / withHours)) +
-                " entre los " +
-                withHours +
-                " que cargaron"
+                (withHours === 1
+                  ? " · cargó una sola persona"
+                  : " entre los " + withHours + " que cargaron")
           }
           icon={<Icon name="users" size={16} />}
         />

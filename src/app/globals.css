@@ -1607,23 +1607,47 @@ body[data-arrastrando] {
 
 /* El contenido sube apenas al cambiar de página. Ciento sesenta milisegundos:
    suficiente para que el cambio se sienta, poco para que nadie espere. */
+/*
+ * La entrada de la página: transición, no animación.
+ *
+ * Esto era una animación con `both`, y al terminar el navegador DEJA aplicado
+ * el último fotograma. Aunque ese fotograma diga `transform: none`, lo que
+ * queda computado es la matriz identidad — un transform al fin y al cabo. Un
+ * elemento con transform se vuelve el bloque contenedor de todo lo que tiene
+ * adentro, y eso rompía dos cosas de golpe: `position: sticky` dejaba de
+ * pegarse —la columna de nombres de la planilla se iba con el scroll justo
+ * cuando más falta hace, en el teléfono— y `position: fixed` dejaba de medirse
+ * contra la ventana.
+ *
+ * Cambiarlo a `backwards` tampoco alcanza: ahí el estado inicial queda pegado
+ * si la animación nunca llega a correr, que pasa cuando la pestaña está en
+ * segundo plano.
+ *
+ * Con una transición y `@starting-style`, el estado EN REPOSO es el que está
+ * escrito acá —sin transform— y el navegador sólo interpola al aparecer. Si no
+ * entiende `@starting-style`, la página aparece sin el deslizamiento y nada
+ * más.
+ */
 .pagina {
-  animation: pagina-entra 160ms ease-out both;
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 160ms ease-out,
+    transform 160ms ease-out;
 }
 
-@keyframes pagina-entra {
-  from {
+@starting-style {
+  .pagina {
     opacity: 0;
     transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pagina,
+  .pagina {
+    transition: none;
+  }
+
   .stat-card:hover::after {
     animation: none;
   }
@@ -2905,4 +2929,61 @@ html::after {
   .pulso-barra {
     animation: none;
   }
+}
+
+/* -------------------------------------------------------------------------- *
+ * Planilla en pantalla angosta
+ *
+ * La tabla mide unos 1250 píxeles y un teléfono tiene 375: se recorren casi
+ * cuatro pantallas de izquierda a derecha. Eso por sí solo sería incómodo. El
+ * problema de verdad es otro: al llegar al viernes, la columna del nombre ya
+ * quedó atrás y no se sabe de quién es la fila que se está tocando. Con
+ * cuarenta y tres filas y plata en cada una, eso no es incomodidad, es cargarle
+ * las horas a otro.
+ *
+ * La columna del nombre se queda pegada a la izquierda, y el encabezado
+ * pegado arriba. En cualquier momento se sabe de quién es la fila y qué día es
+ * la casilla.
+ *
+ * Las celdas pegadas necesitan fondo propio: sin él son transparentes y el
+ * resto de la tabla se ve pasar por debajo.
+ * -------------------------------------------------------------------------- */
+.data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background-color: var(--color-ink-850);
+}
+
+.data-table tbody td:first-child,
+.data-table tfoot td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background-color: var(--surface);
+  /* Un filo que marca dónde termina lo fijo y empieza lo que se desplaza. */
+  box-shadow: 1px 0 0 rgb(255 255 255 / 0.07);
+}
+
+.data-table thead th:first-child {
+  left: 0;
+  /* Esquina: fija en los dos ejes, así que va por encima de las dos. */
+  z-index: 3;
+}
+
+/*
+ * Las filas de color —pagado, falta pagar, la que se está arrastrando— pintan
+ * su propio fondo. La celda fija tiene que repetirlo o se ve el color detrás
+ * de un rectángulo gris.
+ */
+.data-table tbody tr.pay-row-paid td:first-child {
+  background-color: color-mix(in srgb, var(--color-jade-500) 9%, var(--surface));
+}
+
+.data-table tbody tr.pay-row-pending td:first-child {
+  background-color: color-mix(in srgb, var(--color-imperial-500) 8%, var(--surface));
+}
+
+.data-table tbody tr:hover td:first-child {
+  background-color: var(--surface-hover);
 }

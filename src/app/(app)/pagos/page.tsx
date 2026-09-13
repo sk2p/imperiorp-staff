@@ -13,6 +13,7 @@ import {
   EmptyState,
   PageHeader,
   Stat,
+  buttonClass,
 } from "@/components/ui/primitives";
 import { formatMoney, formatMoneyCompact } from "@/domain/money";
 import { formatPeriodLabel, formatCalendarDateShort } from "@/domain/periods";
@@ -85,6 +86,28 @@ export default async function PaymentsPage({
         actions={
           <>
             <WeekSelector weeks={weekOptions} currentId={weekId} />
+            {/*
+              La liquidación en Excel.
+
+              El día que haya una discusión de plata —y en un sistema que
+              reparte sueldos la va a haber— nadie la resuelve pasándose
+              capturas. Se resuelve con la planilla del período abierta en la
+              pantalla de los dos.
+
+              Es un enlace y no un botón con JavaScript: el navegador sabe bajar
+              archivos solo, y así anda igual con la pestaña a medio cargar.
+            */}
+            {can(PERMISSIONS.DATA_EXPORT) ? (
+              <a
+                href={"/api/exportar/liquidacion?periodo=" + weekId}
+                className={buttonClass("secondary", "sm")}
+                download
+                title="Bajar la liquidación de este período en Excel"
+              >
+                <Icon name="download" size={14} />
+                Excel
+              </a>
+            ) : null}
             {isClosed && pending.length > 0 && can(PERMISSIONS.PAYMENTS_CREATE) ? (
               <BulkPayDialog
                 weekId={weekId}

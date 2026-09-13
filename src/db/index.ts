@@ -1,9 +1,11 @@
+import { neonConfig, Pool as NeonPool } from "@neondatabase/serverless";
 import { PGlite } from "@electric-sql/pglite";
 import { sql } from "drizzle-orm";
 import { drizzle as drizzleNodePg, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import path from "node:path";
 import pg from "pg";
+import ws from "ws";
 
 import { getEnv } from "@/lib/core/env";
 import { isTransientDatabaseError } from "@/lib/core/errors";
@@ -70,6 +72,42 @@ function createHandle(): DatabaseHandle {
   const connectionString = env.DATABASE_URL;
 
   if (connectionString) {
+    /**
+     * Contra Neon se usa SU driver, no el genérico.
+     *
+     * La base está en otro continente y el saludo TLS de una conexión nueva
+     * cuesta un cuarto de segundo. En un servidor de siempre eso se paga una
+     * vez; en Vercel, donde cada instancia arranca de cero, se paga seguido —y
+     * el tablero, que pide seis cosas a la vez, abría seis conexiones y pagaba
+     * seis saludos. Medido: 355 ms de los cuales las consultas eran 50.
+     *
+     * El driver de Neon habla con su proxy por un WebSocket y está pensado
+     * exactamente para ese problema. Es compatible con el pool genérico —mismo
+     * `query`, mismo `connect`— así que las transacciones y todo lo demás
+     * siguen funcionando igual.
+     *
+     * Para cualquier otro PostgreSQL se sigue usando `pg`. Este driver sólo
+     * sabe hablar con Neon.
+     */
+    const esNeon = /\.neon\.tech[:/]/.test(connectionString);
+
+    if (esNeon) {
+      // En Node no hay WebSocket nativo hasta hace poco; se le pasa el suyo.
+      neonConfig.webSocketConstructor = ws;
+
+      const pool = new NeonPool({ connectionString, max: env.DATABASE_POOL_MAX });
+
+      pool.on("error", (error: unknown) => {
+        logger.error("Error inesperado en el pool de Neon", { error });
+      });
+
+      return {
+        db: drizzleNodePg(pool as unknown as pg.Pool, { schema }),
+        driver: "postgres",
+        close: () => pool.end(),
+      };
+    }
+
     const pool = new pg.Pool({
       connectionString,
       max: env.DATABASE_POOL_MAX,
