@@ -5,7 +5,7 @@ import { useCallback, useState, useTransition } from "react";
 import { Icon } from "@/components/layout/icons";
 import { useCsrfToken, useToast } from "@/components/ui/interactive";
 import { Badge, Button } from "@/components/ui/primitives";
-import { CSRF_FIELD } from "@/lib/auth/csrf";
+import { CSRF_FIELD } from "@/lib/auth/csrf-campos";
 import { closeOwnSessionAction } from "@/server/actions";
 
 /**

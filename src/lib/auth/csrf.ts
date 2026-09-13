@@ -22,8 +22,9 @@ import { forbidden } from "@/lib/core/errors";
  * funciones cubren los route handlers y agregan la segunda capa en todo caso.
  */
 
-export const CSRF_HEADER = "x-imperio-csrf";
-export const CSRF_FIELD = "__csrf";
+// Los nombres viven aparte porque también los usa el navegador, y este archivo
+// importa `node:crypto`. Ver `csrf-campos.ts`.
+export { CSRF_FIELD, CSRF_HEADER } from "./csrf-campos";
 
 /**
  * Token determinista por sesión. Al derivarse del identificador de sesión con

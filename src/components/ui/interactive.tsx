@@ -13,7 +13,7 @@ import {
 } from "react";
 import { useFormStatus } from "react-dom";
 
-import { CSRF_FIELD } from "@/lib/auth/csrf";
+import { CSRF_FIELD } from "@/lib/auth/csrf-campos";
 import type { ActionState } from "@/server/actions/helpers";
 import { Button, buttonClass, cn, type ButtonSize, type ButtonVariant } from "./primitives";
 

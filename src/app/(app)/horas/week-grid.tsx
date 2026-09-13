@@ -12,7 +12,7 @@ import {
 import { Icon } from "@/components/layout/icons";
 import { useCsrfToken, useToast } from "@/components/ui/interactive";
 import { cn } from "@/components/ui/primitives";
-import { CSRF_FIELD } from "@/lib/auth/csrf";
+import { CSRF_FIELD } from "@/lib/auth/csrf-campos";
 import {
   DAY_STATUS_DEFINITIONS,
   DAY_STATUS_LIST,

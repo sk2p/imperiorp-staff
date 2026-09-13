@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, useTransitio
 import { Icon } from "@/components/layout/icons";
 import { useCsrfToken, useToast } from "@/components/ui/interactive";
 import { cn } from "@/components/ui/primitives";
-import { CSRF_FIELD } from "@/lib/auth/csrf";
+import { CSRF_FIELD } from "@/lib/auth/csrf-campos";
 import { GROUP_DEFINITIONS, readableTextOn } from "@/domain/groups";
 import { localDateShort } from "@/domain/clock";
 import { formatMoney, formatMoneyCompact } from "@/domain/money";
