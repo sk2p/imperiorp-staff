@@ -10,9 +10,15 @@ import {
   frozenSettlement,
   todayIsCovered,
 } from "@/server/shifts";
-import { rotatePeriodIfDue } from "@/server/rotation";
+import { ensureCurrentPeriod, rotatePeriodIfDue } from "@/server/rotation";
 import { COLOR, GROUP_COLOR, allGroupChannels, botConfig, groupChannels } from "./config";
-import { avisoCierrePeriodo, registroFichaje, reporteDiario, sinPeriodoParaHoy } from "./ui";
+import {
+  avisoCierrePeriodo,
+  periodoAbiertoSolo,
+  registroFichaje,
+  reporteDiario,
+  sinPeriodoParaHoy,
+} from "./ui";
 
 /**
  * IMPERIO RP — Las dos tareas que corren solas.
@@ -20,7 +26,8 @@ import { avisoCierrePeriodo, registroFichaje, reporteDiario, sinPeriodoParaHoy }
  *   · A medianoche se publica el resumen del día que terminó: uno por bloque en
  *     su canal, y uno global con todo el staff.
  *   · Cada diez minutos se cierran los fichajes que quedaron abiertos de más y
- *     se controla que el día de hoy caiga adentro de algún período abierto.
+ *     se controla que el día de hoy caiga adentro de algún período abierto. Si
+ *     no lo hay, se abre el de la semana —de sábado a viernes— y se anuncia.
  *
  * El reloj es el local, no el del servidor donde corra el bot. Si esto se muda
  * a una máquina en otro huso, la medianoche sigue siendo la de Argentina.
@@ -210,13 +217,35 @@ async function revisarCobertura(publicar: Publicar): Promise<void> {
     const hoy = localDate();
     if (ultimoAvisoSinPeriodo === hoy) return;
 
-    const { cubierto, proximo } = await todayIsCovered();
+    const { cubierto } = await todayIsCovered();
     if (cubierto) return;
 
-    ultimoAvisoSinPeriodo = hoy;
-    logger.warn("El día de hoy no entra en ningún período abierto", { hoy, proximo });
-
     const config = botConfig();
+
+    /**
+     * Primero se intenta arreglarlo, y recién si no se pudo se toca la alarma.
+     * Avisar de un problema que el propio bot puede resolver es entrenar a la
+     * gente para ignorar los avisos.
+     */
+    const creado = await ensureCurrentPeriod(hoy);
+
+    if (creado.created && creado.week) {
+      logger.info("Período abierto automáticamente", { hoy, periodo: creado.week.code });
+      await publicar(
+        config.resumenGlobal ?? config.pagos,
+        periodoAbiertoSolo(creado.week, creado.reason.includes("recortado")),
+      );
+      return;
+    }
+
+    const { proximo } = await todayIsCovered();
+    ultimoAvisoSinPeriodo = hoy;
+    logger.warn("El día de hoy no entra en ningún período y no se pudo abrir uno", {
+      hoy,
+      motivo: creado.reason,
+      proximo,
+    });
+
     await publicar(config.resumenGlobal ?? config.pagos, sinPeriodoParaHoy(hoy, proximo));
   } catch (error) {
     logger.error("Falló el control de cobertura del día", { error });

@@ -122,6 +122,134 @@ export async function rotatePeriodIfDue(
   });
 }
 
+/* -------------------------------------------------------------------------- */
+/* Garantía de cobertura                                                      */
+/* -------------------------------------------------------------------------- */
+
+/** El sábado de la semana a la que pertenece una fecha. */
+export function weekStartFor(date: CalendarDate): CalendarDate {
+  // getUTCDay: 0 domingo … 6 sábado. Cuántos días hay que retroceder hasta el
+  // sábado: el propio sábado retrocede cero, el domingo uno, el viernes seis.
+  const diasAtras = (calendarDateToUtc(date).getUTCDay() + 1) % 7;
+  return addDays(date, -diasAtras);
+}
+
+export interface EnsureResult {
+  readonly created: boolean;
+  readonly reason: string;
+  readonly week?: {
+    readonly code: string;
+    readonly startDate: string;
+    readonly endDate: string;
+  };
+}
+
+/**
+ * Se asegura de que el día de hoy caiga adentro de un período abierto.
+ *
+ * La rotación de los sábados cierra el que venció y abre el siguiente, y con
+ * eso alcanza mientras nadie toque nada. Pero un período se puede borrar, o se
+ * puede crear uno con las fechas corridas, y entonces queda un día sin cubrir.
+ * Eso no es un detalle estético: un fichaje se anota en el período que CONTIENE
+ * el día trabajado, así que un día sin cubrir es un día cuyas horas no se
+ * cargan en ninguna planilla.
+ *
+ * Esto lo repara solo, y es deliberadamente lo más tímido que puede ser:
+ *
+ *   · No cierra nada. Cerrar congela una liquidación para siempre y ésa es una
+ *     decisión de una persona, no de un reloj. De cerrar se ocupa la rotación,
+ *     que lo hace en su día y lo anuncia.
+ *   · Si la semana canónica —de sábado a viernes— pisa un período que ya
+ *     existe, no se rinde ni lo pisa: recorta el rango a los días libres que
+ *     rodean a hoy. Mejor cubrir tres días que ninguno.
+ *   · Si hoy ya está adentro de un período abierto, no hace absolutamente nada.
+ *     Se puede llamar cada diez minutos sin consecuencias.
+ */
+export async function ensureCurrentPeriod(
+  today: CalendarDate = new Date().toISOString().slice(0, 10),
+): Promise<EnsureResult> {
+  return withTransaction(async (tx) => {
+    /**
+     * El candado de asesoramiento evita que dos procesos —el bot y la tarea de
+     * la web— creen el mismo período a la vez. Se libera solo al terminar la
+     * transacción, salga bien o salga mal.
+     */
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('imperio:cobertura'))`);
+
+    const [cubre] = await tx
+      .select({ id: weeks.id })
+      .from(weeks)
+      .where(
+        and(
+          eq(weeks.status, "open"),
+          sql`${weeks.startDate} <= ${today}`,
+          sql`${weeks.endDate} >= ${today}`,
+        ),
+      )
+      .limit(1);
+
+    if (cubre) return { created: false, reason: "Hoy ya cae adentro de un período abierto." };
+
+    const canonicoInicio = weekStartFor(today);
+    const canonicoFin = addDays(canonicoInicio, PERIOD_LENGTH - 1);
+
+    /**
+     * Se recorta contra TODOS los períodos, abiertos y cerrados. Dos períodos
+     * no pueden compartir un día ni aunque uno esté cerrado: las horas de ese
+     * día no sabrían a cuál pertenecen.
+     */
+    const existentes = await tx
+      .select({ startDate: weeks.startDate, endDate: weeks.endDate })
+      .from(weeks)
+      .where(
+        and(sql`${weeks.startDate} <= ${canonicoFin}`, sql`${weeks.endDate} >= ${canonicoInicio}`),
+      );
+
+    let inicio = canonicoInicio;
+    let fin = canonicoFin;
+
+    for (const otro of existentes) {
+      // Termina antes de hoy: empuja el arranque a partir del día siguiente.
+      if (otro.endDate < today && otro.endDate >= inicio) inicio = addDays(otro.endDate, 1);
+      // Empieza después de hoy: adelanta el cierre al día anterior.
+      if (otro.startDate > today && otro.startDate <= fin) fin = addDays(otro.startDate, -1);
+      // Contiene hoy: imposible, arriba se comprobó que no hay ninguno abierto
+      // que lo contenga — pero puede haber uno CERRADO. Ahí no hay nada que
+      // hacer sin pisarlo, y pisarlo no es decisión de un reloj.
+      if (otro.startDate <= today && otro.endDate >= today) {
+        return {
+          created: false,
+          reason:
+            "Hoy cae adentro del período cerrado " +
+            formatPeriodLabel(otro.startDate, otro.endDate) +
+            ". Hay que reabrirlo o corregir sus fechas a mano.",
+        };
+      }
+    }
+
+    if (inicio > today || fin < today) {
+      return { created: false, reason: "No queda ningún día libre alrededor de hoy." };
+    }
+
+    const abierto = await openPeriod(tx, inicio, fin);
+
+    logger.info("Período creado automáticamente para cubrir el día", {
+      hoy: today,
+      periodo: abierto.code,
+      recortado: inicio !== canonicoInicio || fin !== canonicoFin,
+    });
+
+    return {
+      created: true,
+      reason:
+        inicio === canonicoInicio && fin === canonicoFin
+          ? "Se abrió el período de esta semana."
+          : "Se abrió un período recortado para no pisar otro ya existente.",
+      week: abierto,
+    };
+  });
+}
+
 type Tx = Parameters<Parameters<typeof withTransaction>[0]>[0];
 
 async function closePeriod(tx: Tx, weekId: string) {
@@ -190,9 +318,10 @@ async function closePeriod(tx: Tx, weekId: string) {
   };
 }
 
-async function openPeriod(tx: Tx, startDate: CalendarDate) {
+async function openPeriod(tx: Tx, startDate: CalendarDate, endDateExplicito?: CalendarDate) {
   const actor = systemActor("Apertura automática de período");
-  const endDate = addDays(startDate, PERIOD_LENGTH - 1);
+  // La semana dura siete días salvo que haya que recortarla para no pisar otro.
+  const endDate = endDateExplicito ?? addDays(startDate, PERIOD_LENGTH - 1);
   const code = buildPeriodCode(startDate, endDate);
 
   const [existing] = await tx.select().from(weeks).where(eq(weeks.code, code)).limit(1);

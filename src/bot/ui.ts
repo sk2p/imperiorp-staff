@@ -582,6 +582,47 @@ export function tablaHoras(datos: {
     .addTextDisplayComponents(texto("-# Total del período: `" + formatMinutes(datos.total) + "`"));
 }
 
+/**
+ * El período de la semana se abrió solo.
+ *
+ * Se anuncia en vez de hacerlo callado: que aparezca un período que nadie creó
+ * tiene que ser una noticia, no un misterio. Y si el rango salió recortado por
+ * pisar a otro, hay que decirlo — alguien va a mirar esas fechas raras y
+ * merece saber por qué son así.
+ */
+export function periodoAbiertoSolo(
+  semana: {
+    readonly startDate: string;
+    readonly endDate: string;
+  },
+  recortado: boolean,
+) {
+  return new ContainerBuilder()
+    .setAccentColor(COLOR.entrada)
+    .addTextDisplayComponents(
+      texto(
+        "## " +
+          emoji("CALENDARIO") +
+          " Se abrió el período de esta semana\n**" +
+          fechaLegible(semana.startDate) +
+          "** → **" +
+          fechaLegible(semana.endDate) +
+          "**",
+      ),
+    )
+    .addSeparatorComponents(separador())
+    .addTextDisplayComponents(
+      texto(
+        (recortado
+          ? "El rango salió recortado para no pisar otro período que ya existía. Si no es el que " +
+            "corresponde, se corrige en la página.\n\n"
+          : "") +
+          "Todo el staff activo entra en cero y los fichajes de hoy ya tienen dónde anotarse.\n" +
+          "-# Se abre solo cuando el día de hoy no cae adentro de ningún período.",
+      ),
+    );
+}
+
 /* -------------------------------------------------------------------------- */
 /* Alarma: hoy no entra en ningún período                                     */
 /* -------------------------------------------------------------------------- */

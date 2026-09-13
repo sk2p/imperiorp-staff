@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { getEnv } from "@/lib/core/env";
 import { logger } from "@/lib/core/logger";
-import { rotatePeriodIfDue } from "@/server/rotation";
+import { ensureCurrentPeriod, rotatePeriodIfDue } from "@/server/rotation";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -39,9 +39,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const result = await rotatePeriodIfDue();
 
+    /**
+     * Después de rotar se comprueba que el día de hoy haya quedado cubierto.
+     *
+     * La rotación resuelve el caso normal —cerrar el que venció, abrir el
+     * siguiente—, pero no el de un período borrado o con las fechas corridas.
+     * Sin un período que contenga el día trabajado, un fichaje se cierra bien y
+     * sus horas no se cargan en ninguna planilla, que es la falla más cara que
+     * puede tener este sistema.
+     */
+    const cobertura = await ensureCurrentPeriod();
+
     logger.info("Rotación de período evaluada", {
       actuó: result.acted,
       motivo: result.reason,
+      coberturaCreada: cobertura.created,
+      coberturaMotivo: cobertura.reason,
     });
 
     return NextResponse.json(
@@ -51,6 +64,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         reason: result.reason,
         ...(result.closedWeek ? { closed: result.closedWeek } : {}),
         ...(result.openedWeek ? { opened: result.openedWeek } : {}),
+        coverage: {
+          created: cobertura.created,
+          reason: cobertura.reason,
+          ...(cobertura.week ? { week: cobertura.week } : {}),
+        },
         timestamp: new Date().toISOString(),
       },
       { headers: { "Cache-Control": "no-store" } },
