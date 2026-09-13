@@ -164,13 +164,25 @@ export async function listPayments(filters: PaymentFilters): Promise<Paginated<P
         weekEnd: weeks.endDate,
         staffMemberId: payments.staffMemberId,
         staffName: staffMembers.name,
+        /**
+         * El rango y los minutos TAL COMO ERAN al liquidar, no los de hoy.
+         *
+         * Las columnas del pago se nombran a mano y calificadas: interpolarlas
+         * dejaba la consulta dependiendo de que hubiera un `join` para que el
+         * ORM las calificara. Sin eso, `"week_id"` adentro de una subconsulta
+         * sobre `weekly_staff_records` se resolvería contra esa misma tabla
+         * —`w.week_id = w.week_id`, siempre cierto— y el historial mostraría el
+         * rango y las horas de una fila cualquiera.
+         */
         rank: sql<string>`coalesce((
-          select w.rank_snapshot from weekly_staff_records w
-          where w.week_id = ${payments.weekId} and w.staff_member_id = ${payments.staffMemberId}
-        ), ${staffMembers.rank})`,
+          select r.rank_snapshot from weekly_staff_records r
+          where r.week_id = "payments"."week_id"
+            and r.staff_member_id = "payments"."staff_member_id"
+        ), "staff_members"."rank")`,
         totalMinutes: sql<number>`coalesce((
-          select w.total_minutes from weekly_staff_records w
-          where w.week_id = ${payments.weekId} and w.staff_member_id = ${payments.staffMemberId}
+          select r.total_minutes from weekly_staff_records r
+          where r.week_id = "payments"."week_id"
+            and r.staff_member_id = "payments"."staff_member_id"
         ), 0)`,
         amount: payments.amount,
         expectedAmount: payments.expectedAmount,

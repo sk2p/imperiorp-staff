@@ -84,6 +84,20 @@ function staffConditions(filters: StaffFilters): SQL[] {
  * Traer los miembros y después consultar las horas de cada uno sería el clásico
  * problema N+1: con 200 miembros serían 201 consultas por cada carga de pantalla.
  */
+/**
+ * Las columnas de estas subconsultas van escritas a mano y calificadas.
+ *
+ * Interpolarlas dejaba la consulta dependiendo de un detalle invisible: el ORM
+ * califica las columnas sólo cuando hay más de una tabla en juego, así que
+ * `${staffMembers.id}` adentro de una subconsulta sobre `hour_entries` salía
+ * bien únicamente porque esta consulta tiene un `join`. El día que alguien
+ * saque el join —o copie el bloque a otra consulta que no lo tenga— el nombre
+ * suelto pasa a resolverse contra la tabla de adentro, la comparación deja de
+ * encontrar nada, y todas las horas dan cero sin un solo error.
+ *
+ * Escrito así, dice contra qué tabla se resuelve cada nombre y deja de
+ * depender de la forma de la consulta que lo rodea.
+ */
 export async function listStaff(
   filters: StaffFilters,
   weekId?: string,
@@ -92,20 +106,20 @@ export async function listStaff(
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const minutesExpression = weekId
     ? sql<number>`coalesce((
-        select sum(${hourEntries.minutes})::int
-        from ${hourEntries}
-        where ${hourEntries.staffMemberId} = ${staffMembers.id}
-          and ${hourEntries.weekId} = ${weekId}
-          and ${hourEntries.voidedAt} is null
+        select sum(he.minutes)::int
+        from hour_entries he
+        where he.staff_member_id = "staff_members"."id"
+          and he.week_id = ${weekId}
+          and he.voided_at is null
       ), 0)`
     : sql<number>`0`;
   const entriesExpression = weekId
     ? sql<number>`coalesce((
         select count(*)::int
-        from ${hourEntries}
-        where ${hourEntries.staffMemberId} = ${staffMembers.id}
-          and ${hourEntries.weekId} = ${weekId}
-          and ${hourEntries.voidedAt} is null
+        from hour_entries he
+        where he.staff_member_id = "staff_members"."id"
+          and he.week_id = ${weekId}
+          and he.voided_at is null
       ), 0)`
     : sql<number>`0`;
   const orderBy = (() => {
@@ -551,22 +565,22 @@ export async function getStaffBoard(
 ): Promise<StaffBoard> {
   const minutes = weekId
     ? sql<number>`coalesce((
-        select sum(${hourEntries.minutes})::int
-        from ${hourEntries}
-        where ${hourEntries.staffMemberId} = ${staffMembers.id}
-          and ${hourEntries.weekId} = ${weekId}
-          and ${hourEntries.status} = 'normal'
-          and ${hourEntries.voidedAt} is null
+        select sum(he.minutes)::int
+        from hour_entries he
+        where he.staff_member_id = "staff_members"."id"
+          and he.week_id = ${weekId}
+          and he.status = 'normal'
+          and he.voided_at is null
       ), 0)`
     : sql<number>`0`;
 
   const entries = weekId
     ? sql<number>`coalesce((
         select count(*)::int
-        from ${hourEntries}
-        where ${hourEntries.staffMemberId} = ${staffMembers.id}
-          and ${hourEntries.weekId} = ${weekId}
-          and ${hourEntries.voidedAt} is null
+        from hour_entries he
+        where he.staff_member_id = "staff_members"."id"
+          and he.week_id = ${weekId}
+          and he.voided_at is null
       ), 0)`
     : sql<number>`0`;
 

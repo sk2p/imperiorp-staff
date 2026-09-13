@@ -207,15 +207,15 @@ const PERIODO = sql.raw('"weeks"."id"');
  */
 
 const weekTotalsSelect = {
-  totalMinutes: sql<number>`coalesce(${weeks.frozenTotalMinutes}, (
+  totalMinutes: sql<number>`coalesce("weeks"."frozen_total_minutes", (
     select coalesce(sum(wsr.total_minutes), 0)::int
       from weekly_staff_records wsr where wsr.week_id = ${PERIODO}
   ))`,
-  totalAmount: sql<number>`coalesce(${weeks.frozenTotalAmount}, (
+  totalAmount: sql<number>`coalesce("weeks"."frozen_total_amount", (
     select coalesce(sum(wsr.calculated_amount), 0)::bigint
       from weekly_staff_records wsr where wsr.week_id = ${PERIODO}
   ))::bigint`.mapWith(Number),
-  memberCount: sql<number>`coalesce(${weeks.frozenMemberCount}, (
+  memberCount: sql<number>`coalesce("weeks"."frozen_member_count", (
     select count(*)::int from weekly_staff_records wsr where wsr.week_id = ${PERIODO}
   ))`,
   paidCount: sql<number>`(
@@ -553,17 +553,70 @@ export interface ClosePreflight {
  * La idea es que nadie cierre un período con un "22" tipeado donde iba un "2",
  * ni con la mitad del staff en cero porque se olvidaron de cargar el domingo.
  */
+/** Pagos cuyo importe ya no coincide con lo que corresponde. */
+function consultaPagosDesfasados(weekId: string) {
+  return db
+    .select({
+      name: weeklyStaffRecords.staffNameSnapshot,
+      expected: weeklyStaffRecords.calculatedAmount,
+      paid: payments.amount,
+    })
+    .from(payments)
+    .innerJoin(
+      weeklyStaffRecords,
+      and(
+        eq(weeklyStaffRecords.weekId, payments.weekId),
+        eq(weeklyStaffRecords.staffMemberId, payments.staffMemberId),
+      ),
+    )
+    .where(
+      and(
+        eq(payments.weekId, weekId),
+        isNull(payments.voidedAt),
+        sql`${payments.amount} <> ${weeklyStaffRecords.calculatedAmount}`,
+      ),
+    );
+}
+
 export async function preflightClose(weekId: string): Promise<ClosePreflight> {
   const week = await requireWeek(weekId);
   const warnings: CloseWarning[] = [];
-  const records = await db
-    .select({
-      name: weeklyStaffRecords.staffNameSnapshot,
-      minutes: weeklyStaffRecords.totalMinutes,
-      amount: weeklyStaffRecords.calculatedAmount,
-    })
-    .from(weeklyStaffRecords)
-    .where(eq(weeklyStaffRecords.weekId, weekId));
+
+  /**
+   * Las tres consultas que siguen sólo necesitan las fechas del período, que
+   * ya están. Iban una detrás de otra sin motivo: contra una base remota eso
+   * son tres esperas en fila para juntar datos que no dependen entre sí.
+   */
+  const [records, [outOfRange], mismatched] = await Promise.all([
+    db
+      .select({
+        name: weeklyStaffRecords.staffNameSnapshot,
+        minutes: weeklyStaffRecords.totalMinutes,
+        amount: weeklyStaffRecords.calculatedAmount,
+      })
+      .from(weeklyStaffRecords)
+      .where(eq(weeklyStaffRecords.weekId, weekId)),
+
+    // Horas cargadas con una fecha que cae fuera del período.
+    db
+      .select({ value: sql<number>`count(*)::int` })
+      .from(hourEntries)
+      .where(
+        and(
+          eq(hourEntries.weekId, weekId),
+          isNull(hourEntries.voidedAt),
+          sql`(${hourEntries.workDate} < ${week.startDate} or ${hourEntries.workDate} > ${week.endDate})`,
+        ),
+      ),
+
+    /**
+     * Caso de un período reabierto: si las horas cambiaron después de haberse
+     * pagado, el importe abonado ya no coincide con el que corresponde. Hay que
+     * verlo ANTES de volver a cerrar, no cuando alguien reclame.
+     */
+    consultaPagosDesfasados(weekId),
+  ]);
+
   if (records.length === 0) {
     warnings.push({
       kind: "sin-miembros",
@@ -598,17 +651,6 @@ export async function preflightClose(weekId: string): Promise<ClosePreflight> {
       });
     }
   }
-  // Horas cargadas con una fecha que cae fuera del período.
-  const [outOfRange] = await db
-    .select({ value: sql<number>`count(*)::int` })
-    .from(hourEntries)
-    .where(
-      and(
-        eq(hourEntries.weekId, weekId),
-        isNull(hourEntries.voidedAt),
-        sql`(${hourEntries.workDate} < ${week.startDate} or ${hourEntries.workDate} > ${week.endDate})`,
-      ),
-    );
   if ((outOfRange?.value ?? 0) > 0) {
     warnings.push({
       kind: "fuera-de-rango",
@@ -619,32 +661,6 @@ export async function preflightClose(weekId: string): Promise<ClosePreflight> {
         ".",
     });
   }
-  /**
-   * Caso de un período reabierto: si las horas cambiaron después de haberse
-   * pagado, el importe abonado ya no coincide con el que corresponde. Hay que
-   * verlo ANTES de volver a cerrar, no cuando alguien reclame.
-   */
-  const mismatched = await db
-    .select({
-      name: weeklyStaffRecords.staffNameSnapshot,
-      expected: weeklyStaffRecords.calculatedAmount,
-      paid: payments.amount,
-    })
-    .from(payments)
-    .innerJoin(
-      weeklyStaffRecords,
-      and(
-        eq(weeklyStaffRecords.weekId, payments.weekId),
-        eq(weeklyStaffRecords.staffMemberId, payments.staffMemberId),
-      ),
-    )
-    .where(
-      and(
-        eq(payments.weekId, weekId),
-        isNull(payments.voidedAt),
-        sql`${payments.amount} <> ${weeklyStaffRecords.calculatedAmount}`,
-      ),
-    );
   for (const row of mismatched) {
     warnings.push({
       kind: "pago-desfasado",
