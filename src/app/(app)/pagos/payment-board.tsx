@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition, type MouseEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useTransition,
+  type MouseEvent,
+} from "react";
 
 import { Icon } from "@/components/layout/icons";
 import { useCsrfToken, useToast } from "@/components/ui/interactive";
@@ -73,6 +81,46 @@ export function PaymentBoardTable({ board, weekId, canPay, canVoid, isClosed }: 
   const toast = useToast();
   const [pending, startTransition] = useTransition();
   const [menu, setMenu] = useState<Menu | null>(null);
+
+  /**
+   * Dónde termina dibujándose el menú.
+   *
+   * Antes salía de `Math.min(clic, alto - 190)`: un intento de que no se saliera
+   * por abajo que, con la ventana corta o el clic cerca del pie, plantaba el
+   * menú noventa píxeles POR ENCIMA del cursor. Uno hace clic derecho sobre una
+   * fila y el menú aparece sobre otra: el error de apuntar a la fila
+   * equivocada estaba servido, y acá cada fila es la plata de una persona.
+   *
+   * Ahora se mide el menú de verdad, después de montarlo y antes de que el
+   * navegador lo pinte. Si entra para abajo va abajo del cursor, como cualquier
+   * menú contextual; si no entra, se da vuelta y va arriba, anclado igual al
+   * punto donde se hizo clic. Nunca queda flotando en el medio.
+   */
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [posicion, setPosicion] = useState<{ left: number; top: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const nodo = menuRef.current;
+    if (!menu || !nodo) {
+      setPosicion(null);
+      return;
+    }
+
+    const caja = nodo.getBoundingClientRect();
+    const margen = 8;
+    const alto = globalThis.innerHeight ?? 800;
+    const ancho = globalThis.innerWidth ?? 1200;
+
+    // Abajo del cursor salvo que no entre; ahí se da vuelta hacia arriba.
+    const cabeAbajo = menu.y + caja.height + margen <= alto;
+    const top = cabeAbajo
+      ? menu.y
+      : Math.max(margen, Math.min(menu.y - caja.height, alto - caja.height - margen));
+
+    const left = Math.max(margen, Math.min(menu.x, ancho - caja.width - margen));
+
+    setPosicion({ left, top });
+  }, [menu]);
 
   useEffect(() => {
     if (!menu) return;
@@ -272,9 +320,13 @@ export function PaymentBoardTable({ board, weekId, canPay, canVoid, isClosed }: 
         <div
           role="menu"
           onClick={(event) => event.stopPropagation()}
+          ref={menuRef}
           style={{
-            left: Math.min(menu.x, (globalThis.innerWidth ?? 1200) - 250),
-            top: Math.min(menu.y, (globalThis.innerHeight ?? 800) - 190),
+            left: posicion?.left ?? menu.x,
+            top: posicion?.top ?? menu.y,
+            // Se dibuja recién cuando se sabe dónde: medir primero evita el
+            // parpadeo de verlo aparecer en un lado y saltar al otro.
+            visibility: posicion ? "visible" : "hidden",
           }}
           className="anim-menu bg-ink-900 fixed z-50 w-56 overflow-hidden rounded-xl border border-white/12 shadow-[0_16px_50px_-12px_rgb(0_0_0/0.9)]"
         >

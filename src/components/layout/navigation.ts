@@ -67,13 +67,6 @@ export const NAV_GROUPS: readonly {
     label: "Análisis",
     items: [
       {
-        href: "/estadisticas",
-        label: "Estadísticas",
-        short: "Stats",
-        permissions: [PERMISSIONS.STATS_VIEW],
-        icon: "chart",
-      },
-      {
         href: "/historial",
         label: "Historial",
         short: "Historial",

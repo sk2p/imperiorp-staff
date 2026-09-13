@@ -333,14 +333,6 @@ export default async function DashboardPage() {
             <CardHeader
               title="Evolución por período"
               description="Dinero generado frente a dinero efectivamente pagado."
-              action={
-                <Link
-                  href="/estadisticas"
-                  className="text-chalk-400 hover:text-imperial-400 text-xs font-semibold transition"
-                >
-                  Análisis completo →
-                </Link>
-              }
             />
             <div className="p-4">
               <BarChart

@@ -725,8 +725,7 @@ export async function getPaymentBoard(
   const [settlement, colors, orden] = await Promise.all([
     settlementRows ?? getSettlement(weekId),
     db.select({ rank: rankRates.rank, color: rankRates.color }).from(rankRates),
-    // El mismo orden que la planilla de horas. Si en /horas alguien movió a Pit
-    // arriba de Joaquito, acá tiene que estar arriba de Joaquito.
+    // El orden manual de la planilla, que acá desempata adentro de cada rango.
     db.select({ id: staffMembers.id, displayOrder: staffMembers.displayOrder }).from(staffMembers),
   ]);
 
@@ -753,13 +752,26 @@ export async function getPaymentBoard(
     const members = rows
       .filter((row) => groupForRank(row.rank) === definition.group)
       .sort((a, b) => {
+        /**
+         * Acá manda el RANGO, no el orden manual de la planilla.
+         *
+         * En la planilla de horas el orden lo elige quien carga: mueve a
+         * alguien arriba porque lo está buscando. Pagar es otra tarea — se baja
+         * la lista de arriba hacia abajo — y ahí un SDP metido entre los ADM
+         * porque alguien lo arrastró la semana pasada se lee como un error.
+         *
+         * El orden manual sigue valiendo, pero desempata adentro del mismo
+         * rango: entre cuatro ADM++ siguen en el orden que alguien eligió.
+         */
+        const tier = (rank: string) => (isStaffRank(rank) ? RANK_DEFINITIONS[rank].tier : 0);
+        const porRango = tier(b.rank) - tier(a.rank);
+        if (porRango !== 0) return porRango;
+
         const ordenA = orderById.get(a.staffMemberId) ?? rankBaseOrder(a.rank);
         const ordenB = orderById.get(b.staffMemberId) ?? rankBaseOrder(b.rank);
         if (ordenA !== ordenB) return ordenA - ordenB;
 
-        const tier = (rank: string) => (isStaffRank(rank) ? RANK_DEFINITIONS[rank].tier : 0);
-        const difference = tier(b.rank) - tier(a.rank);
-        return difference !== 0 ? difference : a.name.localeCompare(b.name, "es");
+        return a.name.localeCompare(b.name, "es");
       });
 
     return {

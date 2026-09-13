@@ -1,4 +1,5 @@
 import { and, desc, eq, gte, lte, or, sql, type SQL } from "drizzle-orm";
+import { avisarSeguridad } from "./logbook";
 import { db, type Executor } from "@/db";
 import { securityEvents, type SecurityEvent } from "@/db/schema";
 import { logger } from "@/lib/core/logger";
@@ -73,6 +74,22 @@ export async function recordSecurityEvent(
   } catch (error) {
     logger.error("No se pudo registrar el evento de seguridad", { error, type: input.type });
   }
+
+  /**
+   * Y se avisa a Discord, fuera del `try` de la base.
+   *
+   * Van por caminos separados a propósito: que no se pueda escribir en la base
+   * no es motivo para quedarse además sin el aviso, que es justo cuando más
+   * falta hace. Tampoco espera — encola el envío y vuelve.
+   */
+  avisarSeguridad({
+    tipo: input.type,
+    etiqueta: SECURITY_EVENT_LABELS[input.type],
+    severidad: SEVERITY_BY_TYPE[input.type],
+    usuario: input.username ?? null,
+    ip: input.ip ?? null,
+    detalle: input.details ? JSON.stringify(input.details).slice(0, 400) : null,
+  });
 }
 export async function listSecurityEvents(
   filters: SecurityFilters,

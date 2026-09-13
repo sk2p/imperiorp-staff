@@ -2656,3 +2656,175 @@ html::after {
   pointer-events: none;
   box-shadow: inset 0 0 20vmax 3vmax rgb(0 0 0 / 0.5);
 }
+
+/* -------------------------------------------------------------------------- *
+ * Pantalla de mantenimiento
+ *
+ * Es la única pantalla que alguien mira cuando algo anda mal, y el momento
+ * exacto en que duda de si se perdieron sus horas. Todo lo que se mueve acá
+ * está para decir una sola cosa: esto sigue vivo y es a propósito.
+ * -------------------------------------------------------------------------- */
+
+/* Anillos que nacen en el centro y se van apagando. El latido. */
+.mant-pulso {
+  position: absolute;
+  top: 22%;
+  left: 50%;
+  translate: -50% -50%;
+  pointer-events: none;
+}
+
+.mant-pulso > span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 16rem;
+  height: 16rem;
+  margin: -8rem 0 0 -8rem;
+  border: 1px solid rgb(229 22 44 / 0.35);
+  border-radius: 50%;
+  opacity: 0;
+  animation: mant-onda 4.5s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.mant-pulso > span:nth-child(2) {
+  animation-delay: 1.5s;
+}
+
+.mant-pulso > span:nth-child(3) {
+  animation-delay: 3s;
+}
+
+@keyframes mant-onda {
+  0% {
+    transform: scale(0.35);
+    opacity: 0;
+  }
+  18% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+.mant-etiqueta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3125rem 0.75rem;
+  border: 1px solid rgb(229 22 44 / 0.3);
+  border-radius: 999px;
+  background: rgb(229 22 44 / 0.08);
+  color: #ff8794;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* El punto que late al lado de la etiqueta, como un led encendido. */
+.mant-punto {
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border-radius: 999px;
+  background: var(--color-imperial-500);
+  box-shadow: 0 0 0 0 rgb(229 22 44 / 0.7);
+  animation: mant-led 1.9s ease-out infinite;
+}
+
+@keyframes mant-led {
+  70% {
+    box-shadow: 0 0 0 0.5rem rgb(229 22 44 / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(229 22 44 / 0);
+  }
+}
+
+/*
+ * La barra de progreso que no miente.
+ *
+ * No dice cuánto falta —nadie lo sabe, y una barra que se llena hasta el 90 %
+ * y se queda ahí es peor que ninguna—. Es una luz que recorre el riel: indica
+ * actividad, no avance.
+ */
+.mant-barra {
+  position: relative;
+  width: min(20rem, 100%);
+  height: 3px;
+  margin: 1.75rem auto 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.06);
+}
+
+.mant-barra > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 38%;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-imperial-500),
+    color-mix(in oklab, var(--color-imperial-500) 40%, transparent)
+  );
+  animation: mant-recorre 1.8s cubic-bezier(0.6, 0, 0.4, 1) infinite;
+}
+
+@keyframes mant-recorre {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(365%);
+  }
+}
+
+.mant-fichas {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 2rem;
+}
+
+.mant-ficha {
+  padding: 0.625rem 0.5rem;
+  border: 1px solid rgb(255 255 255 / 0.07);
+  border-radius: 0.75rem;
+  background: rgb(255 255 255 / 0.02);
+  /* Entran en cascada, una detrás de otra. */
+  animation: mant-ficha-entra 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.mant-ficha:nth-child(2) {
+  animation-delay: 0.1s;
+}
+
+.mant-ficha:nth-child(3) {
+  animation-delay: 0.2s;
+}
+
+@keyframes mant-ficha-entra {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mant-pulso > span,
+  .mant-punto,
+  .mant-barra > span,
+  .mant-ficha {
+    animation: none;
+  }
+
+  .mant-barra > span {
+    transform: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+}

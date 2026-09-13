@@ -111,16 +111,7 @@ const P = PERMISSIONS;
 
 /** Refresca las pantallas afectadas por un cambio de datos. */
 function revalidateAll(): void {
-  for (const path of [
-    "/",
-    "/horas",
-    "/staff",
-    "/pagos",
-    "/periodos",
-    "/estadisticas",
-    "/historial",
-    "/auditoria",
-  ]) {
+  for (const path of ["/", "/horas", "/staff", "/pagos", "/periodos", "/historial", "/auditoria"]) {
     revalidatePath(path, "page");
   }
 }

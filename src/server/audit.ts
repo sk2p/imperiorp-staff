@@ -4,6 +4,7 @@ import { db, withTransaction, type Transaction } from "@/db";
 import { auditLogs, users, type AuditLog } from "@/db/schema";
 import type { ActorContext } from "@/lib/auth/context";
 import { logger } from "@/lib/core/logger";
+import { anotarEnBitacora } from "./logbook";
 import { containsPattern, offsetFor, paginate, type Paginated } from "@/validation/common";
 import type { AuditAction, AuditFilters } from "@/validation/system";
 /**
@@ -150,6 +151,23 @@ export async function appendAuditLog(tx: Transaction, input: AuditEntryInput): P
   if (!inserted) {
     throw new Error("No se pudo registrar la entrada de auditoría.");
   }
+
+  /**
+   * Se anota para la bitácora de Discord.
+   *
+   * Encola y vuelve: no espera a Discord ni lo deja frenar la transacción. La
+   * tanda comprueba después, contra la base, que la entrada haya quedado — esta
+   * transacción todavía puede revertirse y no se puede anunciar algo que al
+   * final no pasó.
+   */
+  anotarEnBitacora({
+    id: inserted.id,
+    accion: input.action,
+    actor: input.actor.username,
+    resumen: input.summary,
+    motivo: reason,
+  });
+
   return inserted;
 }
 /**
