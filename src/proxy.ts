@@ -151,10 +151,24 @@ export function proxy(request: NextRequest): NextResponse {
         ? FRENO_ESCRITURA
         : FRENO_LECTURA;
 
-    const veredicto = consumir(
-      origenDe(request.headers) + ":" + (escribe ? "w" : "r"),
-      presupuesto,
-    );
+    /**
+     * En desarrollo el freno se afloja diez veces.
+     *
+     * Sin un proxy adelante no hay cabecera que diga de dónde viene el pedido,
+     * así que TODO cae en la misma clave: el navegador, las herramientas, las
+     * recargas en caliente de Next. Con el presupuesto de producción, cortarse
+     * a uno mismo mientras se trabaja es cuestión de minutos —me pasó dos
+     * veces—, y un freno que estorba es un freno que alguien termina sacando.
+     *
+     * El camino se sigue ejecutando igual, así que si se rompe, se rompe acá y
+     * no en producción.
+     */
+    const holgura = process.env.NODE_ENV === "production" ? 1 : 10;
+
+    const veredicto = consumir(origenDe(request.headers) + ":" + (escribe ? "w" : "r"), {
+      maximo: presupuesto.maximo * holgura,
+      ventanaMs: presupuesto.ventanaMs,
+    });
 
     if (!veredicto.permitido) {
       /**
@@ -162,12 +176,18 @@ export function proxy(request: NextRequest): NextResponse {
        * en medio de una navegación, y un navegador mostrando texto plano sobre
        * fondo blanco parece que el sistema explotó. Va mínima y sin depender de
        * nada: el punto de frenar es no gastar recursos.
+       *
+       * El reintento espera la ventana COMPLETA más tres segundos. Con el
+       * tiempo justo, la página se recarga en el instante exacto en que la
+       * ventana se renueva, consume el primer pedido de la nueva y, si además
+       * hay otras pestañas haciendo lo mismo, vuelve a chocar: un bucle que se
+       * mantiene a sí mismo bloqueado. Me pasó probándolo.
        */
       const respuesta = new NextResponse(
         '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">' +
           "<title>Demasiados pedidos</title>" +
           '<meta http-equiv="refresh" content="' +
-          veredicto.esperaSegundos +
+          (veredicto.esperaSegundos + 3) +
           '">' +
           "<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#07080a;" +
           "color:#e8e9ec;font:15px/1.6 system-ui,sans-serif;text-align:center;padding:24px}" +

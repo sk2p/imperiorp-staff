@@ -15,6 +15,7 @@ import {
   Stat,
   buttonClass,
 } from "@/components/ui/primitives";
+import { localDateTime } from "@/domain/clock";
 import { formatMoney, formatMoneyCompact } from "@/domain/money";
 import { formatPeriodLabel, formatCalendarDateShort } from "@/domain/periods";
 import { PERMISSIONS } from "@/domain/permissions";
@@ -316,10 +317,7 @@ export default async function PaymentsPage({
                       ) : null}
                     </td>
                     <td className="tnum text-chalk-400 text-xs whitespace-nowrap">
-                      {row.paidAt?.toLocaleString("es-AR", {
-                        dateStyle: "short",
-                        timeStyle: "short",
-                      })}
+                      {row.paidAt ? localDateTime(row.paidAt) : ""}
                     </td>
                     <td className="text-chalk-400 text-xs">
                       {row.paidByUsername}

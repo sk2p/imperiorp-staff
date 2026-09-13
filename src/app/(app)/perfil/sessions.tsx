@@ -20,7 +20,20 @@ export interface SessionRow {
   readonly id: string;
   readonly ip: string | null;
   readonly userAgent: string | null;
-  readonly lastSeenAt: Date;
+  /**
+   * Ya formateada por el servidor, en la zona horaria de la aplicación.
+   *
+   * Antes viajaba como fecha y este componente —que corre en el navegador— la
+   * formateaba con `toLocaleString`. El servidor la escribía en SU zona y el
+   * navegador en la del usuario: dos textos distintos para el mismo instante,
+   * y React tirando la página al piso por no coincidir. Se perdía el
+   * JavaScript de la pantalla donde se cierran sesiones, que es justamente la
+   * que uno abre cuando sospecha que alguien entró.
+   *
+   * El formato lo decide el servidor una vez, con la zona de Argentina, y acá
+   * sólo se muestra. No hay dos verdades posibles.
+   */
+  readonly lastSeenAt: string;
   readonly createdAt: Date;
 }
 
@@ -111,11 +124,7 @@ export function SessionList({
               <p className="text-chalk-600 mt-0.5 text-[0.6875rem]">
                 {item.ip ?? "IP desconocida"}
                 <span className="text-chalk-700 mx-1.5">·</span>
-                última actividad{" "}
-                {item.lastSeenAt.toLocaleString("es-AR", {
-                  dateStyle: "short",
-                  timeStyle: "short",
-                })}
+                última actividad {item.lastSeenAt}
               </p>
             </div>
 

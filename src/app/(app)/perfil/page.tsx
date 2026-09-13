@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { Card, CardHeader, PageHeader } from "@/components/ui/primitives";
+import { localDateTime } from "@/domain/clock";
 import { rankLabel } from "@/domain/ranks";
 import { requireAuth } from "@/lib/auth/context";
 import { listActiveSessions } from "@/lib/auth/session";
@@ -45,7 +46,10 @@ export default async function ProfilePage() {
               id: item.id,
               ip: item.ip,
               userAgent: item.userAgent,
-              lastSeenAt: item.lastSeenAt,
+              // Formateada acá, en el servidor y con la zona de la aplicación:
+              // si la formateara el navegador, cada uno vería una hora distinta
+              // y la página no sobreviviría a la hidratación.
+              lastSeenAt: localDateTime(item.lastSeenAt),
               createdAt: item.createdAt,
             }))}
             currentSessionId={session.id}

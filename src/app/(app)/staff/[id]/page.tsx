@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { localDateShort, localDateTime } from "@/domain/clock";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -338,11 +339,7 @@ export default async function StaffDetailPage({
                         ) : null}
                       </p>
                       <p className="text-chalk-600 mt-0.5 text-[0.6875rem]">
-                        {payment.paidAt.toLocaleString("es-AR", {
-                          dateStyle: "short",
-                          timeStyle: "short",
-                        })}{" "}
-                        · registrado por {payment.paidByUsername}
+                        {localDateTime(payment.paidAt)} · registrado por {payment.paidByUsername}
                       </p>
                     </div>
                     <span className="tnum text-jade-400 shrink-0 text-sm font-semibold">
@@ -389,7 +386,7 @@ export default async function StaffDetailPage({
                     <p className="text-chalk-500 mt-0.5 text-[0.6875rem]">{change.reason}</p>
                   ) : null}
                   <p className="text-chalk-600 mt-0.5 text-[0.6875rem]">
-                    {change.createdAt.toLocaleDateString("es-AR")} · {change.changedByUsername}
+                    {localDateShort(change.createdAt)} · {change.changedByUsername}
                   </p>
                 </li>
               ))}

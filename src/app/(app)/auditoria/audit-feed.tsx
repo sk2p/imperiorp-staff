@@ -1,4 +1,5 @@
 import { Icon } from "@/components/layout/icons";
+import { localDate, localDateLong, localDateTime, localTime } from "@/domain/clock";
 import { cn } from "@/components/ui/primitives";
 import { AUDIT_ACTION_LABELS, type AuditAction } from "@/validation/system";
 
@@ -98,8 +99,15 @@ function haceCuanto(fecha: Date, ahora: Date): string {
   return "hace " + dias + (dias === 1 ? " día" : " días");
 }
 
+/**
+ * Agrupar por día usa la zona horaria de la APLICACIÓN, no la del proceso.
+ *
+ * `toLocaleDateString` sin zona usa la del servidor, que en Vercel es UTC. Un
+ * movimiento de las 21:30 de Argentina caía en el grupo del día siguiente, y
+ * el registro de auditoría quedaba ordenado por un día que nadie vivió.
+ */
 function claveDeDia(fecha: Date): string {
-  return fecha.toLocaleDateString("es-AR", { year: "numeric", month: "2-digit", day: "2-digit" });
+  return localDate(fecha);
 }
 
 function tituloDeDia(fecha: Date, ahora: Date): string {
@@ -109,7 +117,7 @@ function tituloDeDia(fecha: Date, ahora: Date): string {
 
   if (clave === hoy) return "Hoy";
   if (clave === ayer) return "Ayer";
-  return fecha.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
+  return localDateLong(fecha);
 }
 
 function valorLegible(value: unknown): string {
@@ -178,18 +186,10 @@ function Linea({ entry, ahora }: { readonly entry: AuditEntry; readonly ahora: D
             {AUDIT_ACTION_LABELS[entry.action as AuditAction] ?? entry.action}
           </span>
           {delicada ? <span className="log-tag log-delicada">Sensible</span> : null}
-          <span
-            title={entry.createdAt.toLocaleString("es-AR", {
-              dateStyle: "full",
-              timeStyle: "medium",
-            })}
-          >
+          <span title={localDateTime(entry.createdAt)}>
             {haceCuanto(entry.createdAt, ahora)}
             {" · "}
-            {entry.createdAt.toLocaleTimeString("es-AR", {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
+            {localTime(entry.createdAt)}
           </span>
         </p>
 

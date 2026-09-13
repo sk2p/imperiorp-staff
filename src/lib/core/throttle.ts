@@ -88,6 +88,24 @@ export function consumir(clave: string, presupuesto: Presupuesto): Veredicto {
     return { permitido: true, restantes: presupuesto.maximo - 1, esperaSegundos: 0 };
   }
 
+  /**
+   * Un pedido ya rechazado no se vuelve a contar.
+   *
+   * Antes se sumaba igual, y un cliente que reintentaba en bucle se mantenía
+   * el contador por las nubes toda la ventana. No alargaba el castigo —la
+   * ventana vence igual— pero ensuciaba el número de "restantes" y hacía que
+   * el freno pareciera más agresivo de lo que es. Al tope, se deja de contar.
+   */
+  if (actual.cuenta >= presupuesto.maximo) {
+    actual.cuenta = presupuesto.maximo + 1;
+
+    return {
+      permitido: false,
+      restantes: 0,
+      esperaSegundos: Math.max(1, Math.ceil((actual.vence - ahora) / 1000)),
+    };
+  }
+
   actual.cuenta += 1;
 
   if (actual.cuenta > presupuesto.maximo) {

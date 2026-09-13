@@ -174,3 +174,30 @@ export function formatDuration(totalSeconds: number): string {
 export function secondsToMinutes(totalSeconds: number): number {
   return Math.round(Math.max(0, totalSeconds) / 60);
 }
+
+/**
+ * Fecha local corta, para las tablas: "12/09/2026".
+ *
+ * Existe por el mismo motivo que las otras: `toLocaleDateString("es-AR")` sin
+ * zona horaria usa la del PROCESO, y en Vercel el proceso corre en UTC. Un
+ * pago hecho a las 21:30 de Argentina aparecía con la fecha del día siguiente,
+ * y nadie tenía forma de saber por qué.
+ */
+export function localDateShort(instant: Date, timeZone = zone()): string {
+  return new Intl.DateTimeFormat("es-AR", {
+    timeZone,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(instant);
+}
+
+/** Día y mes en letras, para los encabezados: "sábado 12 de septiembre". */
+export function localDateLong(instant: Date, timeZone = zone()): string {
+  return new Intl.DateTimeFormat("es-AR", {
+    timeZone,
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  }).format(instant);
+}

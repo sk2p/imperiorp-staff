@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { localDateShort, localDateTime } from "@/domain/clock";
 
 import { Icon } from "@/components/layout/icons";
 import {
@@ -128,7 +129,7 @@ export default async function SettingsPage() {
                 <span className="text-chalk-700 mx-2">·</span>
                 {change.changedByUsername}
                 <span className="text-chalk-700 mx-2">·</span>
-                {change.createdAt.toLocaleDateString("es-AR")}
+                {localDateShort(change.createdAt)}
               </li>
             ))}
           </ul>
@@ -196,12 +197,7 @@ export default async function SettingsPage() {
                         </Badge>
                       </td>
                       <td className="text-chalk-500 text-xs">
-                        {row.lastLoginAt
-                          ? row.lastLoginAt.toLocaleString("es-AR", {
-                              dateStyle: "short",
-                              timeStyle: "short",
-                            })
-                          : "nunca"}
+                        {row.lastLoginAt ? localDateTime(row.lastLoginAt) : "nunca"}
                       </td>
                       <td>
                         <div className="flex items-center justify-end gap-0.5">
@@ -254,10 +250,7 @@ export default async function SettingsPage() {
                       ) : null}
                     </p>
                     <p className="text-chalk-600 mt-0.5 text-[0.6875rem]">
-                      {event.createdAt.toLocaleString("es-AR", {
-                        dateStyle: "short",
-                        timeStyle: "short",
-                      })}
+                      {localDateTime(event.createdAt)}
                       {event.ip ? " · " + event.ip : ""}
                     </p>
                   </div>

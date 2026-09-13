@@ -7,6 +7,7 @@ import { useCsrfToken, useToast } from "@/components/ui/interactive";
 import { cn } from "@/components/ui/primitives";
 import { CSRF_FIELD } from "@/lib/auth/csrf";
 import { GROUP_DEFINITIONS, readableTextOn } from "@/domain/groups";
+import { localDateShort } from "@/domain/clock";
 import { formatMoney, formatMoneyCompact } from "@/domain/money";
 import { formatMinutes } from "@/domain/time";
 import type { PaymentBoard } from "@/server/payments";
@@ -242,9 +243,7 @@ export function PaymentBoardTable({ board, weekId, canPay, canVoid, isClosed }: 
                       {row.paid && row.paidByUsername ? (
                         <span className="text-chalk-600 mt-0.5 block text-[0.625rem]">
                           {row.paidByUsername}
-                          {row.paidAt
-                            ? " · " + row.paidAt.toLocaleDateString("es-AR", { dateStyle: "short" })
-                            : ""}
+                          {row.paidAt ? " · " + localDateShort(row.paidAt) : ""}
                         </span>
                       ) : null}
                     </td>
