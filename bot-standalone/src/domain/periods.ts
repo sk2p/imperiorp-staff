@@ -95,12 +95,15 @@ export interface PeriodRange {
 }
 
 /**
- * Dos períodos se solapan si comparten al menos un día.
- * Se usa para impedir que se creen liquidaciones pisadas, que harían imposible
- * decidir a qué período pertenece una hora cargada.
+ * Dos períodos se solapan si comparten más que el día límite de transición.
+ * Si un período termina el día X y el siguiente empieza el día X
+ * (por ejemplo 11 al 18 y 18 al 25), comparten el día de cambio de guardia/rotación,
+ * lo cual está permitido.
+ * Se considera solapamiento si se pisan internamente o si tienen exactamente el mismo rango.
  */
 export function periodsOverlap(a: PeriodRange, b: PeriodRange): boolean {
-  return a.startDate <= b.endDate && b.startDate <= a.endDate;
+  if (a.startDate === b.startDate && a.endDate === b.endDate) return true;
+  return a.startDate < b.endDate && b.startDate < a.endDate;
 }
 
 export function findOverlapping<T extends PeriodRange>(
@@ -240,11 +243,11 @@ export function validatePeriodRange(
 
 /**
  * Sugiere el próximo período a partir del último cerrado: arranca el día
- * siguiente y conserva exactamente la misma duración.
+ * de fin del anterior (día de transición) y conserva exactamente la misma duración.
  */
 export function suggestNextPeriod(previous: PeriodRange): PeriodRange {
   const length = periodLengthInDays(previous.startDate, previous.endDate);
-  const startDate = addDays(previous.endDate, 1);
+  const startDate = previous.endDate;
   return { startDate, endDate: addDays(startDate, length - 1) };
 }
 

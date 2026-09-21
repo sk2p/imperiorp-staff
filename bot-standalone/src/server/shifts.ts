@@ -414,6 +414,7 @@ async function applySegments(
           eq(weeks.status, "open"),
         ),
       )
+      .orderBy(desc(weeks.startDate))
       .limit(1);
 
     if (!semana) {

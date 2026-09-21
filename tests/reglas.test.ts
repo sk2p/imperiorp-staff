@@ -43,18 +43,25 @@ describe("períodos de liquidación", () => {
   it("detecta cualquier solapamiento entre períodos", () => {
     const base = { startDate: "2026-09-01", endDate: "2026-09-08" };
 
+    // Solapamiento interior
     expect(periodsOverlap(base, { startDate: "2026-09-05", endDate: "2026-09-12" })).toBe(true);
-    // Comparten un único día: igual se solapan.
-    expect(periodsOverlap(base, { startDate: "2026-09-08", endDate: "2026-09-15" })).toBe(true);
-    // Empieza justo al día siguiente: no se solapan.
+    expect(periodsOverlap(base, { startDate: "2026-08-28", endDate: "2026-09-05" })).toBe(true);
+    // Mismo rango exacto
+    expect(periodsOverlap(base, { startDate: "2026-09-01", endDate: "2026-09-08" })).toBe(true);
+
+    // Períodos consecutivos que comparten el día límite (de transición): NO se solapan
+    expect(periodsOverlap(base, { startDate: "2026-09-08", endDate: "2026-09-15" })).toBe(false);
+    expect(periodsOverlap(base, { startDate: "2026-08-25", endDate: "2026-09-01" })).toBe(false);
+
+    // Sin contacto alguno
     expect(periodsOverlap(base, { startDate: "2026-09-09", endDate: "2026-09-16" })).toBe(false);
     expect(periodsOverlap(base, { startDate: "2026-08-20", endDate: "2026-08-31" })).toBe(false);
   });
 
   it("sugiere el período siguiente conservando la duración", () => {
     const next = suggestNextPeriod({ startDate: "2026-09-01", endDate: "2026-09-08" });
-    expect(next.startDate).toBe("2026-09-09");
-    expect(next.endDate).toBe("2026-09-16");
+    expect(next.startDate).toBe("2026-09-08");
+    expect(next.endDate).toBe("2026-09-15");
     expect(periodLengthInDays(next.startDate, next.endDate)).toBe(8);
   });
 

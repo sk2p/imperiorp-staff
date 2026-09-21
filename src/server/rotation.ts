@@ -209,14 +209,13 @@ export async function ensureCurrentPeriod(
     let fin = canonicoFin;
 
     for (const otro of existentes) {
-      // Termina antes de hoy: empuja el arranque a partir del día siguiente.
-      if (otro.endDate < today && otro.endDate >= inicio) inicio = addDays(otro.endDate, 1);
-      // Empieza después de hoy: adelanta el cierre al día anterior.
-      if (otro.startDate > today && otro.startDate <= fin) fin = addDays(otro.startDate, -1);
-      // Contiene hoy: imposible, arriba se comprobó que no hay ninguno abierto
-      // que lo contenga — pero puede haber uno CERRADO. Ahí no hay nada que
-      // hacer sin pisarlo, y pisarlo no es decisión de un reloj.
-      if (otro.startDate <= today && otro.endDate >= today) {
+      // Termina antes de hoy: empuja el arranque hasta su fin si coincide o supera inicio.
+      if (otro.endDate < today && otro.endDate > inicio) inicio = otro.endDate;
+      // Empieza después de hoy: adelanta el cierre a su inicio si solapa.
+      if (otro.startDate > today && otro.startDate < fin) fin = otro.startDate;
+      // Si el período cerrado termina hoy, hoy es el día de rotación/transición y arranca el nuevo.
+      // Solo frena si hoy cae estrictamente adentro de un período cerrado (o si ese período arrancó hoy).
+      if (otro.startDate <= today && (otro.endDate > today || otro.startDate === today)) {
         return {
           created: false,
           reason:

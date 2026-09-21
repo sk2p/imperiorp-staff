@@ -480,17 +480,17 @@ export async function updateWeek(input: UpdateWeekInput, actor: ActorContext): P
       newCode = buildPeriodCode(newStartDate, newEndDate);
 
       if (newStartDate !== existing.startDate || newEndDate !== existing.endDate) {
-        const [solapado] = await tx
+        const others = await tx
           .select({ id: weeks.id, startDate: weeks.startDate, endDate: weeks.endDate })
           .from(weeks)
-          .where(
-            and(
-              ne(weeks.id, input.id),
-              sql`${weeks.startDate} <= ${newEndDate}`,
-              sql`${weeks.endDate} >= ${newStartDate}`,
-            ),
-          )
-          .limit(1);
+          .where(ne(weeks.id, input.id));
+
+        const solapado = others.find((other) =>
+          periodsOverlap(
+            { startDate: newStartDate, endDate: newEndDate },
+            { startDate: other.startDate, endDate: other.endDate },
+          ),
+        );
 
         if (solapado) {
           throw conflict(
