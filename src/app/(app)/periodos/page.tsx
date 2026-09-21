@@ -111,6 +111,7 @@ export default async function PeriodsPage({
               breakdown={breakdowns.get(week.id)}
               activo={indice === 0}
               puedeCerrar={can(PERMISSIONS.WEEKS_CLOSE)}
+              puedeEditar={can(PERMISSIONS.WEEKS_CREATE)}
             />
           ))}
         </div>
@@ -261,6 +262,8 @@ export default async function PeriodsPage({
                               <EditPeriodDialog
                                 weekId={week.id}
                                 version={week.version}
+                                startDate={week.startDate}
+                                endDate={week.endDate}
                                 label={week.label}
                                 notes={week.notes}
                                 periodLabel={formatPeriodLabel(week.startDate, week.endDate)}

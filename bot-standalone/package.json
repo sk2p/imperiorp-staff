@@ -1,7 +1,7 @@
 {
   "name": "imperio-rp-bot",
   "version": "1.0.0",
-  "description": "Bot de fichajes de Discord para Imperio RP — proyecto independiente",
+  "description": "Bot de fichajes de Discord para Imperio RP ",
   "private": true,
   "type": "module",
   "scripts": {

@@ -4,7 +4,7 @@ import { formatPeriodLabel, periodLengthInDays } from "@/domain/periods";
 import { formatMinutes } from "@/domain/time";
 import type { ClosePreflight, WeekBreakdown, WeekListItem } from "@/server/weeks";
 import { PeriodInside } from "./period-breakdown";
-import { ClosePeriodDialog } from "./period-dialogs";
+import { ClosePeriodDialog, EditPeriodDialog } from "./period-dialogs";
 import { PeriodProgress } from "./period-progress";
 
 /**
@@ -25,12 +25,14 @@ export function OpenPeriodCard({
   breakdown,
   activo,
   puedeCerrar,
+  puedeEditar,
 }: {
   readonly week: WeekListItem;
   readonly preflight: ClosePreflight | null;
   readonly breakdown: WeekBreakdown | undefined;
   readonly activo: boolean;
   readonly puedeCerrar: boolean;
+  readonly puedeEditar?: boolean;
 }) {
   return (
     <Card className={"revela " + (activo ? "border-imperial-500/25" : "border-white/[0.08]")}>
@@ -64,21 +66,34 @@ export function OpenPeriodCard({
               " miembros · sigue abierto, todavía no se puede pagar"
         }
         action={
-          preflight && puedeCerrar ? (
-            <ClosePeriodDialog
-              summary={{
-                weekId: week.id,
-                version: week.version,
-                startDate: week.startDate,
-                endDate: week.endDate,
-                totalMinutes: preflight.totalMinutes,
-                totalAmount: preflight.totalAmount,
-                memberCount: preflight.memberCount,
-                membersWithHours: preflight.membersWithHours,
-                warnings: preflight.warnings,
-              }}
-            />
-          ) : null
+          <div className="flex items-center gap-1.5">
+            {puedeEditar ? (
+              <EditPeriodDialog
+                weekId={week.id}
+                version={week.version}
+                startDate={week.startDate}
+                endDate={week.endDate}
+                label={week.label}
+                notes={week.notes}
+                periodLabel={formatPeriodLabel(week.startDate, week.endDate)}
+              />
+            ) : null}
+            {preflight && puedeCerrar ? (
+              <ClosePeriodDialog
+                summary={{
+                  weekId: week.id,
+                  version: week.version,
+                  startDate: week.startDate,
+                  endDate: week.endDate,
+                  totalMinutes: preflight.totalMinutes,
+                  totalAmount: preflight.totalAmount,
+                  memberCount: preflight.memberCount,
+                  membersWithHours: preflight.membersWithHours,
+                  warnings: preflight.warnings,
+                }}
+              />
+            ) : null}
+          </div>
         }
       />
 

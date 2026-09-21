@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, sql, type SQL } from "drizzle-orm";
 import { db, withTransaction, type Executor, type Transaction } from "@/db";
 import {
   hourEntries,
@@ -469,9 +469,47 @@ export async function createWeek(input: CreateWeekInput, actor: ActorContext): P
 export async function updateWeek(input: UpdateWeekInput, actor: ActorContext): Promise<Week> {
   return withTransaction(async (tx) => {
     const existing = await lockWeek(tx, input.id);
+
+    let newStartDate = existing.startDate;
+    let newEndDate = existing.endDate;
+    let newCode = existing.code;
+
+    if (input.startDate && input.endDate) {
+      newStartDate = input.startDate;
+      newEndDate = input.endDate;
+      newCode = buildPeriodCode(newStartDate, newEndDate);
+
+      if (newStartDate !== existing.startDate || newEndDate !== existing.endDate) {
+        const [solapado] = await tx
+          .select({ id: weeks.id, startDate: weeks.startDate, endDate: weeks.endDate })
+          .from(weeks)
+          .where(
+            and(
+              ne(weeks.id, input.id),
+              sql`${weeks.startDate} <= ${newEndDate}`,
+              sql`${weeks.endDate} >= ${newStartDate}`,
+            ),
+          )
+          .limit(1);
+
+        if (solapado) {
+          throw conflict(
+            "Las fechas elegidas (" +
+              formatPeriodLabel(newStartDate, newEndDate) +
+              ") se solapan con el período " +
+              formatPeriodLabel(solapado.startDate, solapado.endDate) +
+              ".",
+          );
+        }
+      }
+    }
+
     const [updated] = await tx
       .update(weeks)
       .set({
+        code: newCode,
+        startDate: newStartDate,
+        endDate: newEndDate,
         label: input.label,
         notes: input.notes,
         version: existing.version + 1,
@@ -479,16 +517,39 @@ export async function updateWeek(input: UpdateWeekInput, actor: ActorContext): P
       })
       .where(and(eq(weeks.id, input.id), eq(weeks.version, input.expectedVersion)))
       .returning();
+
     if (!updated) throw concurrency();
+
+    if (newStartDate !== existing.startDate || newEndDate !== existing.endDate) {
+      await recalculateWeekRecords(tx, updated.id);
+    }
+
     await appendAuditLog(tx, {
       actor,
       action: "WEEK_UPDATED",
       entity: "weeks",
       entityId: updated.id,
-      summary: "Editó el período " + formatPeriodLabel(updated.startDate, updated.endDate),
-      before: { etiqueta: existing.label, notas: existing.notes },
-      after: { etiqueta: updated.label, notas: updated.notes },
+      summary:
+        "Editó el período " +
+        (newStartDate !== existing.startDate || newEndDate !== existing.endDate
+          ? formatPeriodLabel(existing.startDate, existing.endDate) +
+            " → " +
+            formatPeriodLabel(newStartDate, newEndDate)
+          : formatPeriodLabel(updated.startDate, updated.endDate)),
+      before: {
+        inicio: existing.startDate,
+        fin: existing.endDate,
+        etiqueta: existing.label,
+        notas: existing.notes,
+      },
+      after: {
+        inicio: updated.startDate,
+        fin: updated.endDate,
+        etiqueta: updated.label,
+        notas: updated.notes,
+      },
     });
+
     return updated;
   });
 }

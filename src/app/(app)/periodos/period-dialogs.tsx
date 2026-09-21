@@ -447,23 +447,31 @@ export function DeletePeriodDialog({
 export function EditPeriodDialog({
   weekId,
   version,
+  startDate,
+  endDate,
   label,
   notes,
   periodLabel,
 }: {
   readonly weekId: string;
   readonly version: number;
+  readonly startDate: string;
+  readonly endDate: string;
   readonly label: string | null;
   readonly notes: string | null;
   readonly periodLabel: string;
 }) {
+  const [start, setStart] = useState(startDate);
+  const [end, setEnd] = useState(endDate);
+  const days = start && end && start <= end ? periodLengthInDays(start, end) : 0;
+
   return (
     <Dialog
       title="Editar el período"
       description={periodLabel}
-      width="sm"
+      width="md"
       trigger={(open) => (
-        <Button size="sm" variant="ghost" onClick={open} title="Editar etiqueta y notas">
+        <Button size="sm" variant="ghost" onClick={open} title="Editar fechas, etiqueta y notas">
           <Icon name="pencil" size={14} />
           <span className="sr-only">Editar</span>
         </Button>
@@ -476,14 +484,46 @@ export function EditPeriodDialog({
               <input type="hidden" name="id" value={weekId} />
               <input type="hidden" name="expectedVersion" value={version} />
 
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Desde" name="startDate" required error={fieldError("startDate")}>
+                  <Input
+                    id="edit-startDate"
+                    name="startDate"
+                    type="date"
+                    value={start}
+                    onChange={(event) => setStart(event.target.value)}
+                    required
+                  />
+                </Field>
+                <Field label="Hasta" name="endDate" required error={fieldError("endDate")}>
+                  <Input
+                    id="edit-endDate"
+                    name="endDate"
+                    type="date"
+                    value={end}
+                    onChange={(event) => setEnd(event.target.value)}
+                    required
+                  />
+                </Field>
+              </div>
+
+              {days > 0 ? (
+                <Callout tone={days > 14 ? "warning" : "neutral"}>
+                  El período abarca <strong>{days} días</strong>
+                  {days > 14
+                    ? ", más de lo habitual para una liquidación. Verificá las fechas."
+                    : "."}
+                </Callout>
+              ) : null}
+
               <Field
                 label="Etiqueta"
                 name="label"
-                hint="Cómo se lo nombra en la lista. Las fechas se muestran solas."
+                hint="Cómo se lo nombra en la lista. Opcional."
                 error={fieldError("label")}
               >
                 <Input
-                  id="label"
+                  id="edit-label"
                   name="label"
                   defaultValue={label ?? ""}
                   maxLength={80}
@@ -498,7 +538,7 @@ export function EditPeriodDialog({
                 error={fieldError("notes")}
               >
                 <Textarea
-                  id="notes"
+                  id="edit-notes"
                   name="notes"
                   rows={3}
                   maxLength={1000}
@@ -511,7 +551,7 @@ export function EditPeriodDialog({
                 <Button type="button" variant="ghost" onClick={close}>
                   Cancelar
                 </Button>
-                <SubmitButton pendingLabel="Guardando…">Guardar</SubmitButton>
+                <SubmitButton pendingLabel="Guardando…">Guardar cambios</SubmitButton>
               </div>
             </>
           )}

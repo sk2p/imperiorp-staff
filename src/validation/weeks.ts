@@ -42,12 +42,38 @@ export const createWeekSchema = z.intersection(
 
 export type CreateWeekInput = z.infer<typeof createWeekSchema>;
 
-export const updateWeekSchema = z.object({
-  id: uuidSchema,
-  expectedVersion: versionSchema,
-  label: optionalText(80, "La etiqueta"),
-  notes: optionalText(1000, "Las notas"),
-});
+export const updateWeekSchema = z
+  .object({
+    id: uuidSchema,
+    expectedVersion: versionSchema,
+    startDate: calendarDateSchema.optional(),
+    endDate: calendarDateSchema.optional(),
+    label: optionalText(80, "La etiqueta"),
+    notes: optionalText(1000, "Las notas"),
+  })
+  .superRefine((value, ctx) => {
+    if (value.startDate && value.endDate) {
+      if (value.startDate > value.endDate) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "La fecha de inicio no puede ser posterior a la de fin.",
+          path: ["endDate"],
+        });
+      } else if (periodLengthInDays(value.startDate, value.endDate) > MAX_PERIOD_DAYS) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "El período no puede abarcar más de " + MAX_PERIOD_DAYS + " días.",
+          path: ["endDate"],
+        });
+      }
+    } else if (Boolean(value.startDate) !== Boolean(value.endDate)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Si cambiás las fechas, debés indicar tanto inicio como fin.",
+        path: ["startDate"],
+      });
+    }
+  });
 
 export type UpdateWeekInput = z.infer<typeof updateWeekSchema>;
 
