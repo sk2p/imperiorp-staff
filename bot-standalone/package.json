@@ -1,0 +1,37 @@
+{
+  "name": "imperio-rp-bot",
+  "version": "1.0.0",
+  "description": "Bot de fichajes de Discord para Imperio RP — proyecto independiente",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bot": "tsx --env-file=.env src/bot/index.ts",
+    "bot:dev": "tsx watch --env-file=.env src/bot/index.ts",
+    "bot:build": "node scripts/build-bot.mjs",
+    "bot:emojis": "tsx --env-file=.env src/bot/sync-emojis.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "@neondatabase/serverless": "^1.1.0",
+    "date-fns": "^4.4.0",
+    "date-fns-tz": "^3.2.0",
+    "discord.js": "14.27.0",
+    "drizzle-orm": "0.45.2",
+    "exceljs": "^4.4.0",
+    "pg": "8.23.0",
+    "ws": "^8.21.3",
+    "zod": "4.6.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.2",
+    "@types/pg": "8.23.1",
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.28.2",
+    "tsx": "4.23.13",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

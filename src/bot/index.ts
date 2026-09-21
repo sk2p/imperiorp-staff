@@ -58,6 +58,7 @@ import {
   esIdDeFicha,
 } from "./guardia";
 import { actualizarPresencia } from "./presencia";
+import { sincronizarGremioCompleto, sincronizarMiembroDiscord } from "./roles";
 import { startScheduler } from "./tasks";
 import {
   aviso,
@@ -89,8 +90,8 @@ import {
 const config = botConfig();
 
 const client = new Client({
-  // Sin intents privilegiados: el bot vive de interacciones, no lee mensajes.
-  intents: [GatewayIntentBits.Guilds],
+  // Guilds para interacción y estructura; GuildMembers para sincronizar altas y cambios de rol de staff.
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
   // Sólo suenan menciones a personas: nunca @everyone ni roles. Ver `guardia.ts`.
   allowedMentions: MENCIONES_PERMITIDAS,
 });
@@ -721,6 +722,9 @@ const comandos = [
   new SlashCommandBuilder()
     .setName("mis-pagos")
     .setDescription("Tus últimos períodos cerrados y si ya se pagaron"),
+  new SlashCommandBuilder()
+    .setName("sincronizar-staff")
+    .setDescription("Sincroniza los miembros y roles del staff de Discord con la web"),
 ].map((c) => c.toJSON());
 
 async function manejarComando(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -980,6 +984,34 @@ async function manejarComando(interaction: ChatInputCommandInteraction): Promise
         ? aviso("🔗 Vínculo quitado", "<@" + usuario.id + "> ya no está vinculado a ninguna ficha.")
         : errorUi("Esa cuenta no estaba vinculada a ninguna ficha."),
     );
+    return;
+  }
+
+  if (interaction.commandName === "sincronizar-staff") {
+    if (!interaction.guild) {
+      await responder(
+        interaction,
+        errorUi("Este comando sólo se puede usar dentro del servidor de Discord."),
+      );
+      return;
+    }
+
+    const resumen = await sincronizarGremioCompleto(interaction.guild);
+
+    await responder(
+      interaction,
+      aviso(
+        "🔄 Sincronización de staff completada",
+        `Se revisaron los miembros del servidor:\n\n` +
+          `• 🟢 **${resumen.altas}** miembros nuevos agregados a la web\n` +
+          `• 🔼 **${resumen.cambiosRango}** cambios de rango (ascensos/descensos)\n` +
+          `• 🔁 **${resumen.reincorporaciones}** miembros reincorporados\n` +
+          `• 🔻 **${resumen.bajas}** dados de baja (roles quitados o salieron)\n` +
+          `• 👥 **${resumen.sinCambios}** ya sincronizados`,
+        COLOR.entrada,
+      ),
+    );
+    return;
   }
 }
 
@@ -1143,6 +1175,88 @@ client.once(Events.ClientReady, async (listo) => {
   startScheduler(client, publicar);
   // El estado "N en servicio" arranca bien desde el primer minuto.
   void actualizarPresencia(client);
+
+  // Sincronización automática de staff al arrancar
+  const guildId = config.guildId;
+  const guilds = guildId
+    ? [listo.guilds.cache.get(guildId)].filter((g): g is NonNullable<typeof g> => Boolean(g))
+    : Array.from(listo.guilds.cache.values());
+
+  for (const guild of guilds) {
+    sincronizarGremioCompleto(guild)
+      .then((resumen) => {
+        logger.info("Sincronización inicial de staff completada", {
+          servidor: guild.name,
+          total: resumen.total,
+          altas: resumen.altas,
+          cambiosRango: resumen.cambiosRango,
+          reincorporaciones: resumen.reincorporaciones,
+          bajas: resumen.bajas,
+          sinCambios: resumen.sinCambios,
+        });
+      })
+      .catch((error) => {
+        logger.warn("No se pudo completar la sincronización inicial de staff", {
+          servidor: guild.name,
+          error,
+        });
+      });
+  }
+});
+
+/**
+ * Escuchar cambios de roles y miembros en tiempo real.
+ * Si alguien recibe, cambia o pierde un rol de staff en Discord, se actualiza la web de inmediato.
+ */
+client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
+  if (esDeOtroServidor(newMember.guild.id, config.guildId)) return;
+
+  // Comparar si cambiaron los roles antes de procesar
+  const rolesViejos = oldMember.roles.cache;
+  const rolesNuevos = newMember.roles.cache;
+  const cambiaronRoles =
+    rolesViejos.size !== rolesNuevos.size || !rolesNuevos.every((r) => rolesViejos.has(r.id));
+
+  if (!cambiaronRoles && oldMember.displayName === newMember.displayName) {
+    return;
+  }
+
+  try {
+    const res = await sincronizarMiembroDiscord(newMember);
+    if (res.tipo !== "sin_cambios" && res.tipo !== "no_staff") {
+      logger.info("Miembro de staff actualizado en tiempo real por evento de Discord", {
+        usuario: newMember.user.tag,
+        resultado: res.tipo,
+        rangoAnterior: res.rangoAnterior,
+        rangoNuevo: res.rangoNuevo,
+      });
+    }
+  } catch (error) {
+    logger.error("Error al sincronizar miembro tras cambio en Discord", {
+      userId: newMember.id,
+      error,
+    });
+  }
+});
+
+client.on(Events.GuildMemberAdd, async (member) => {
+  if (esDeOtroServidor(member.guild.id, config.guildId)) return;
+
+  try {
+    const res = await sincronizarMiembroDiscord(member);
+    if (res.tipo !== "sin_cambios" && res.tipo !== "no_staff") {
+      logger.info("Miembro nuevo con rol de staff agregado a la web", {
+        usuario: member.user.tag,
+        resultado: res.tipo,
+        rango: res.rangoNuevo,
+      });
+    }
+  } catch (error) {
+    logger.error("Error al procesar ingreso de nuevo miembro", {
+      userId: member.id,
+      error,
+    });
+  }
 });
 
 async function registrarComandos(): Promise<void> {

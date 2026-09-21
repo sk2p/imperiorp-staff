@@ -30,8 +30,8 @@ import { recalculateWeekRecords } from "./weeks";
  * a la mañana siguiente en lugar de dejar el período abierto una semana entera.
  */
 
-/** Día de la semana en que rota el período. 6 = sábado. */
-const ROTATION_WEEKDAY = 6;
+/** Día de la semana en que rota el período. 5 = viernes. */
+const ROTATION_WEEKDAY = 5;
 
 /** Duración del período nuevo, en días. */
 const PERIOD_LENGTH = 7;
@@ -76,7 +76,7 @@ export async function rotatePeriodIfDue(
     // Sin período abierto, se abre uno si hoy es el día de rotación.
     if (!open) {
       if (!isRotationDay(today)) {
-        return { acted: false, reason: "No hay período abierto y hoy no es sábado." };
+        return { acted: false, reason: "No hay período abierto y hoy no es viernes." };
       }
       const opened = await openPeriod(tx, today);
       return {
@@ -100,8 +100,8 @@ export async function rotatePeriodIfDue(
     }
 
     /**
-     * El período venció. Se cierra aunque hoy no sea sábado: si el programador
-     * no corrió el sábado, esperar al siguiente dejaría dos semanas mezcladas
+     * El período venció. Se cierra aunque hoy no sea viernes: si el programador
+     * no corrió el viernes, esperar al siguiente dejaría dos semanas mezcladas
      * en la misma liquidación.
      */
     const closed = await closePeriod(tx, open.id);
@@ -126,11 +126,11 @@ export async function rotatePeriodIfDue(
 /* Garantía de cobertura                                                      */
 /* -------------------------------------------------------------------------- */
 
-/** El sábado de la semana a la que pertenece una fecha. */
+/** El viernes de la semana a la que pertenece una fecha. */
 export function weekStartFor(date: CalendarDate): CalendarDate {
-  // getUTCDay: 0 domingo … 6 sábado. Cuántos días hay que retroceder hasta el
-  // sábado: el propio sábado retrocede cero, el domingo uno, el viernes seis.
-  const diasAtras = (calendarDateToUtc(date).getUTCDay() + 1) % 7;
+  // getUTCDay: 0 domingo … 5 viernes, 6 sábado. Cuántos días hay que retroceder hasta el
+  // viernes: el propio viernes retrocede cero, el sábado uno, el domingo dos, etc.
+  const diasAtras = (calendarDateToUtc(date).getUTCDay() + 2) % 7;
   return addDays(date, -diasAtras);
 }
 
@@ -308,7 +308,7 @@ async function closePeriod(tx: Tx, weekId: string) {
       totalImporte: closed.frozenTotalAmount,
       miembros: closed.frozenMemberCount,
     },
-    reason: "Rotación automática de los sábados",
+    reason: "Rotación automática de los viernes",
   });
 
   return {
@@ -368,7 +368,7 @@ async function openPeriod(tx: Tx, startDate: CalendarDate, endDateExplicito?: Ca
       fin: endDate,
       dias: periodLengthInDays(startDate, endDate),
     },
-    reason: "Rotación automática de los sábados",
+    reason: "Rotación automática de los viernes",
   });
 
   return { code: created.code, startDate, endDate };

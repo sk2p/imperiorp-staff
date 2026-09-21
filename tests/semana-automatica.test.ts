@@ -5,46 +5,52 @@ import { weekStartFor } from "@/server/rotation";
 /**
  * De qué semana es cada día.
  *
- * Imperio RP liquida de sábado a viernes, así que la semana de un día es la que
- * arranca en el sábado anterior — o en el propio día, si ese día ES sábado. El
- * borde del domingo es el que más se equivoca al escribirlo a mano: para el
- * resto del mundo el domingo abre la semana, y acá la cierra recién empezada.
+ * Imperio RP liquida de viernes a viernes (semana de viernes a jueves),
+ * así que la semana de un día es la que arranca en el viernes anterior —
+ * o en el propio día, si ese día ES viernes.
  */
-describe("el sábado de cada semana", () => {
-  it("un sábado es su propio arranque", () => {
+describe("el viernes de cada semana", () => {
+  it("un viernes es su propio arranque", () => {
+    // 2026-09-11 es viernes.
+    expect(weekStartFor("2026-09-11")).toBe("2026-09-11");
+  });
+
+  it("el sábado pertenece al viernes anterior", () => {
     // 2026-09-12 es sábado.
-    expect(weekStartFor("2026-09-12")).toBe("2026-09-12");
+    expect(weekStartFor("2026-09-12")).toBe("2026-09-11");
   });
 
-  it("el domingo pertenece al sábado anterior, no al siguiente", () => {
-    expect(weekStartFor("2026-09-13")).toBe("2026-09-12");
+  it("el domingo pertenece al viernes anterior", () => {
+    // 2026-09-13 es domingo.
+    expect(weekStartFor("2026-09-13")).toBe("2026-09-11");
   });
 
-  it("el viernes cierra la semana que arrancó seis días antes", () => {
-    expect(weekStartFor("2026-09-18")).toBe("2026-09-12");
+  it("el jueves cierra la semana que arrancó seis días antes", () => {
+    // 2026-09-17 es jueves.
+    expect(weekStartFor("2026-09-17")).toBe("2026-09-11");
   });
 
   it("cruza el fin de mes sin perderse", () => {
-    // 2026-10-03 es sábado; el 2 de octubre todavía es de la semana anterior.
-    expect(weekStartFor("2026-10-02")).toBe("2026-09-26");
-    expect(weekStartFor("2026-10-03")).toBe("2026-10-03");
+    // 2026-10-02 es viernes; el 1 de octubre (jueves) todavía es de la semana que arrancó el 25 de septiembre.
+    expect(weekStartFor("2026-10-01")).toBe("2026-09-25");
+    expect(weekStartFor("2026-10-02")).toBe("2026-10-02");
   });
 
-  it("cada día de una semana devuelve el mismo sábado", () => {
+  it("cada día de una semana devuelve el mismo viernes", () => {
     const dias = [
-      "2026-09-12",
-      "2026-09-13",
-      "2026-09-14",
-      "2026-09-15",
-      "2026-09-16",
-      "2026-09-17",
-      "2026-09-18",
+      "2026-09-11", // viernes
+      "2026-09-12", // sábado
+      "2026-09-13", // domingo
+      "2026-09-14", // lunes
+      "2026-09-15", // martes
+      "2026-09-16", // miércoles
+      "2026-09-17", // jueves
     ];
 
-    expect(new Set(dias.map(weekStartFor))).toEqual(new Set(["2026-09-12"]));
+    expect(new Set(dias.map(weekStartFor))).toEqual(new Set(["2026-09-11"]));
   });
 
-  it("el día siguiente al viernes ya es de la semana que viene", () => {
-    expect(weekStartFor("2026-09-19")).toBe("2026-09-19");
+  it("el día siguiente al jueves ya es de la semana que viene", () => {
+    expect(weekStartFor("2026-09-18")).toBe("2026-09-18");
   });
 });

@@ -156,34 +156,34 @@ describe("permisos", () => {
   });
 });
 
-describe("rotación automática de los sábados", () => {
-  it("reconoce el sábado y sólo el sábado", () => {
-    // 2026-09-12 es sábado; la semana entera alrededor sirve de control.
-    expect(isRotationDay("2026-09-12")).toBe(true);
-    expect(isRotationDay("2026-09-19")).toBe(true);
+describe("rotación automática de los viernes", () => {
+  it("reconoce el viernes y sólo el viernes", () => {
+    // 2026-09-11 y 2026-09-18 son viernes; la semana entera alrededor sirve de control.
+    expect(isRotationDay("2026-09-11")).toBe(true);
+    expect(isRotationDay("2026-09-18")).toBe(true);
     for (const day of [
-      "2026-09-06",
-      "2026-09-07",
-      "2026-09-08",
-      "2026-09-09",
-      "2026-09-10",
-      "2026-09-11",
+      "2026-09-12",
+      "2026-09-13",
+      "2026-09-14",
+      "2026-09-15",
+      "2026-09-16",
+      "2026-09-17",
     ]) {
       expect(isRotationDay(day)).toBe(false);
     }
   });
 
-  it("el período que abre un sábado termina el viernes siguiente", () => {
-    // La rotación abre siete días desde el sábado: sábado a viernes.
-    const fin = addDays("2026-09-12", 6);
-    expect(fin).toBe("2026-09-18");
+  it("el período que abre un viernes termina el jueves siguiente", () => {
+    // La rotación abre siete días desde el viernes: viernes a jueves.
+    const fin = addDays("2026-09-11", 6);
+    expect(fin).toBe("2026-09-17");
     expect(isRotationDay(fin)).toBe(false);
-    expect(periodLengthInDays("2026-09-12", fin)).toBe(7);
+    expect(periodLengthInDays("2026-09-11", fin)).toBe(7);
   });
 
   it("el día siguiente a un período vencido arranca donde terminó el anterior", () => {
-    // Si el programador falla el sábado y corre el lunes, el período nuevo no
+    // Si el programador falla el viernes y corre el lunes, el período nuevo no
     // empieza el lunes: empieza el día siguiente al que cerró, sin huecos.
-    expect(addDays("2026-09-18", 1)).toBe("2026-09-19");
+    expect(addDays("2026-09-17", 1)).toBe("2026-09-18");
   });
 });
